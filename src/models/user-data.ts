@@ -35,6 +35,7 @@ export interface WatchHistoryRecord {
   vodPic: string;
   episodeName: string;
   sourceName: string;
+  sourceIndex: number | null;
   episodeUrl: string;
   playableUrl: string;
   positionMillis: number;

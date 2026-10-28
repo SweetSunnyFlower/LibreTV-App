@@ -36,7 +36,7 @@ describe('PlaybackCoordinator', () => {
       adapter,
       loadProgress: async () => null,
       saveProgress: async () => {},
-      recordStarted: async () => {},
+      recordStarted: async () => null,
     });
 
     const firstRun = coordinator.start({ url: 'https://a/1.m3u8', autoPlay: true });
@@ -66,7 +66,7 @@ describe('PlaybackCoordinator', () => {
       adapter,
       loadProgress: async () => ({ positionSeconds: 95, durationSeconds: 100 }),
       saveProgress: async () => {},
-      recordStarted: async () => {},
+      recordStarted: async () => null,
     });
 
     const result = await coordinator.start({ url: 'https://a/1.m3u8', autoPlay: true });
@@ -92,7 +92,7 @@ describe('PlaybackCoordinator', () => {
       adapter,
       loadProgress: async () => null,
       saveProgress: async () => {},
-      recordStarted: async () => {},
+      recordStarted: async () => null,
     });
 
     const run = coordinator.start({ url: 'https://a/1.m3u8', autoPlay: true });
@@ -100,5 +100,26 @@ describe('PlaybackCoordinator', () => {
 
     expect(await run).toEqual({ status: 'cancelled' });
     expect(adapter.replaceAndWaitReady).not.toHaveBeenCalled();
+  });
+
+  it('flushes app-setting and watch-history progress for the active session', async () => {
+    const saveProgress = vi.fn(async () => {});
+    const coordinator = new PlaybackCoordinator({
+      resolve: async () => source('https://a/1.m3u8'),
+      adapter: {
+        pause: vi.fn(),
+        replaceAndWaitReady: vi.fn(async () => ({ duration: 120 })),
+        seek: vi.fn(),
+        play: vi.fn(),
+      },
+      loadProgress: async () => null,
+      saveProgress,
+      recordStarted: async () => 'watch::7',
+    });
+
+    await coordinator.start({ url: 'https://a/1.m3u8', autoPlay: true });
+    await coordinator.flush(45, 120);
+
+    expect(saveProgress).toHaveBeenCalledWith('https://a/1.m3u8', 45, 120, 'watch::7');
   });
 });

@@ -31,14 +31,20 @@ type PlaybackCoordinatorDependencies = {
   loadProgress: (
     url: string
   ) => Promise<{ positionSeconds: number; durationSeconds: number } | null>;
-  saveProgress: (url: string, positionSeconds: number, durationSeconds: number) => Promise<void>;
-  recordStarted: (result: PlaybackResolveResult) => Promise<void>;
+  saveProgress: (
+    url: string,
+    positionSeconds: number,
+    durationSeconds: number,
+    watchHistoryId: string | null
+  ) => Promise<void>;
+  recordStarted: (result: PlaybackResolveResult) => Promise<string | null>;
 };
 
 export class PlaybackCoordinator {
   private generation = 0;
   private controller: AbortController | null = null;
   private activeUrl = '';
+  private watchHistoryId: string | null = null;
 
   constructor(private readonly dependencies: PlaybackCoordinatorDependencies) {}
 
@@ -48,6 +54,7 @@ export class PlaybackCoordinator {
     const controller = new AbortController();
     this.controller = controller;
     this.activeUrl = '';
+    this.watchHistoryId = null;
     this.dependencies.adapter.pause();
 
     try {
@@ -75,12 +82,13 @@ export class PlaybackCoordinator {
         this.dependencies.adapter.seek(savedProgress.positionSeconds);
       }
 
-      await this.dependencies.recordStarted(result);
+      const watchHistoryId = await this.dependencies.recordStarted(result);
       if (generation !== this.generation || controller.signal.aborted) {
         return { status: 'cancelled' };
       }
 
       this.activeUrl = input.url;
+      this.watchHistoryId = watchHistoryId;
       if (input.autoPlay) {
         this.dependencies.adapter.play();
       }
@@ -103,7 +111,8 @@ export class PlaybackCoordinator {
     await this.dependencies.saveProgress(
       this.activeUrl,
       progress.positionSeconds,
-      progress.durationSeconds
+      progress.durationSeconds,
+      this.watchHistoryId
     );
   }
 

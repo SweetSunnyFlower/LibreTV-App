@@ -187,7 +187,7 @@ export default function PlayerScreen() {
   const colors = useTheme();
   const dialog = useAppDialog();
   const { startDownload } = useDownloads();
-  const { addWatchHistory, isFavorite, toggleFavorite } = useUserData();
+  const { addWatchHistory, updateWatchHistoryProgress, isFavorite, toggleFavorite } = useUserData();
   const rawUrl = firstParam(params.url) ?? '';
   const title = firstParam(params.title) ?? firstParam(params.vodName) ?? '正在播放';
   const vodId = firstParam(params.vodId);
@@ -315,15 +315,23 @@ export default function PlayerScreen() {
         ? { positionSeconds, durationSeconds: 0 }
         : null;
     },
-    saveProgress: async (url, positionSeconds, durationSeconds) => {
+    saveProgress: async (url, positionSeconds, durationSeconds, watchHistoryId) => {
       if (!recordProgressEnabledRef.current) return;
-      await setAppSetting(db, playbackProgressSettingKey(url), String(Math.floor(positionSeconds)));
-      void durationSeconds;
+      await Promise.all([
+        setAppSetting(db, playbackProgressSettingKey(url), String(Math.floor(positionSeconds))),
+        watchHistoryId
+          ? updateWatchHistoryProgress(
+              watchHistoryId,
+              Math.round(positionSeconds * 1000),
+              Math.round(durationSeconds * 1000)
+            )
+          : Promise.resolve(),
+      ]);
     },
     recordStarted: async (result) => {
       const context = playbackContextRef.current;
       const currentDetail = detailRef.current;
-      await addWatchHistory({
+      return addWatchHistory({
         siteUrl: context.siteUrl ?? '',
         detailUrl: context.detailUrl ?? '',
         vodId: vodId ? Number(vodId) : null,
@@ -331,11 +339,12 @@ export default function PlayerScreen() {
         vodPic: currentDetail?.vod_pic ?? '',
         episodeName: episodeName ?? '',
         sourceName: context.sourceName ?? '',
+        sourceIndex: sourceIndex ? Number(sourceIndex) : null,
         episodeUrl: context.rawUrl,
         playableUrl: result.playableUrl,
       });
     },
-  }), [addWatchHistory, db, episodeName, fallbackTitle, player, vodId, vodNameParam]);
+  }), [addWatchHistory, db, episodeName, fallbackTitle, player, sourceIndex, updateWatchHistoryProgress, vodId, vodNameParam]);
 
   const flushPlaybackProgress = useCallback(async () => {
     if (progressSaveTimerRef.current) {
