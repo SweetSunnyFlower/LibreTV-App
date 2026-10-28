@@ -30,3 +30,17 @@ export function shouldAutoHidePlayerControls({
 export function formatBufferingLabel(percent: number | null) {
   return percent === null ? '正在缓冲' : `正在缓冲 ${percent}%`;
 }
+
+export function shouldHideControlsAfterBuffering({
+  bufferingPending,
+  isBuffering,
+  isPlaying,
+  hasError,
+}: {
+  bufferingPending: boolean;
+  isBuffering: boolean;
+  isPlaying: boolean;
+  hasError: boolean;
+}) {
+  return bufferingPending && !isBuffering && isPlaying && !hasError;
+}

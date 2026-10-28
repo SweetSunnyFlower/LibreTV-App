@@ -19,6 +19,7 @@ import {
   formatBufferingLabel,
   PLAYER_BACK_BUTTON_ALIGNMENT,
   PLAYER_CONTROLS_HIDE_MS,
+  shouldHideControlsAfterBuffering,
   shouldAutoHidePlayerControls,
 } from '@/utils/player-overlay';
 import { useEvent } from 'expo';
@@ -281,6 +282,7 @@ export default function PlayerScreen() {
   const progressSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bufferingResumePendingRef = useRef(false);
   const videoHeightRef = useRef(DEFAULT_VIDEO_HEIGHT);
   const dragStartHeightRef = useRef(DEFAULT_VIDEO_HEIGHT);
   const lastResolveAlertRef = useRef('');
@@ -573,6 +575,31 @@ export default function PlayerScreen() {
   }, [isMediaBuffering, isPlaying, resolveError, resolving, scheduleControlsHide, status]);
 
   useEffect(() => {
+    const hasError = Boolean(resolveError) || status === 'error';
+    if (isMediaBuffering) {
+      bufferingResumePendingRef.current = true;
+      return;
+    }
+    if (shouldHideControlsAfterBuffering({
+      bufferingPending: bufferingResumePendingRef.current,
+      isBuffering: isMediaBuffering,
+      isPlaying,
+      hasError,
+    })) {
+      if (controlsTimerRef.current) {
+        clearTimeout(controlsTimerRef.current);
+        controlsTimerRef.current = null;
+      }
+      bufferingResumePendingRef.current = false;
+      setControlsVisible(false);
+      return;
+    }
+    if (hasError) {
+      bufferingResumePendingRef.current = false;
+    }
+  }, [isMediaBuffering, isPlaying, resolveError, status]);
+
+  useEffect(() => {
     return () => {
       if (controlsTimerRef.current) {
         clearTimeout(controlsTimerRef.current);
@@ -837,7 +864,7 @@ export default function PlayerScreen() {
         ) : (
           <VideoView
             player={player}
-            nativeControls={true}
+            nativeControls={controlsVisible}
             buttonOptions={{ showPrevious: false, showNext: false }}
             allowsPictureInPicture={true}
             startsPictureInPictureAutomatically={true}
@@ -846,6 +873,14 @@ export default function PlayerScreen() {
             style={[styles.video, { height: videoHeight }]}
           />
         )}
+        {!controlsVisible && !resolving && !resolveError && status !== 'error' ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="显示播放控件"
+            style={[StyleSheet.absoluteFill, styles.videoTapOverlay]}
+            onPress={showControlsTemporarily}
+          />
+        ) : null}
         <Animated.View
           style={[styles.videoOverlay, { opacity: controlsOpacity }]}
           pointerEvents="none">
@@ -981,6 +1016,9 @@ const styles = StyleSheet.create({
   },
   video: {
     width: SCREEN_WIDTH,
+  },
+  videoTapOverlay: {
+    zIndex: 1,
   },
   videoOverlay: {
     position: 'absolute',
