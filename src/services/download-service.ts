@@ -117,7 +117,8 @@ async function validateFileDownloadUrl(url: string, headers?: Record<string, str
     if (contentType.includes('text/html')) {
       throw new Error('当前播放地址是网页播放页，暂不能直接保存为本地视频');
     }
-    const contentLength = Number(response.headers.get('content-length'));
+    const contentLengthHeader = response.headers.get('content-length');
+    const contentLength = contentLengthHeader === null ? NaN : Number(contentLengthHeader);
     if (Number.isFinite(contentLength) && contentLength <= 0) {
       throw new Error('下载文件为空');
     }

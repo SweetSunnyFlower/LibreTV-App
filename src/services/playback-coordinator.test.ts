@@ -122,4 +122,30 @@ describe('PlaybackCoordinator', () => {
 
     expect(saveProgress).toHaveBeenCalledWith('https://a/1.m3u8', 45, 120, 'watch::7');
   });
+
+  it('does not record history when cancellation happens during progress loading', async () => {
+    const progress = deferred<{ positionSeconds: number; durationSeconds: number } | null>();
+    const recordStarted = vi.fn(async () => 'watch::7');
+    const adapter = {
+      pause: vi.fn(),
+      replaceAndWaitReady: vi.fn(async () => ({ duration: 120 })),
+      seek: vi.fn(),
+      play: vi.fn(),
+    };
+    const coordinator = new PlaybackCoordinator({
+      resolve: async () => source('https://a/1.m3u8'),
+      adapter,
+      loadProgress: () => progress.promise,
+      saveProgress: async () => {},
+      recordStarted,
+    });
+
+    const run = coordinator.start({ url: 'https://a/1.m3u8', autoPlay: true });
+    await vi.waitFor(() => expect(adapter.replaceAndWaitReady).toHaveBeenCalledOnce());
+    coordinator.cancel();
+    progress.resolve(null);
+
+    expect(await run).toEqual({ status: 'cancelled' });
+    expect(recordStarted).not.toHaveBeenCalled();
+  });
 });

@@ -24,4 +24,10 @@ describe('runConcurrentWorkers', () => {
     expect(claimed).not.toContain(3);
     expect(claimed).not.toContain(4);
   });
+
+  it('surfaces an uncaught worker rejection', async () => {
+    await expect(runConcurrentWorkers(1, async () => {
+      throw new Error('worker crashed');
+    })).rejects.toThrow('worker crashed');
+  });
 });
