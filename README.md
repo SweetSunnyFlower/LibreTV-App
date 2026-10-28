@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="./docs/images/00-overview.png" alt="Movie Night 全页面总览" width="100%">
-</p>
-
 <h2 align="center">页面预览</h2>
 
 | 首页 | 分类 | 搜索 |
