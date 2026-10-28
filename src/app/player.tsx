@@ -15,6 +15,11 @@ import { getAppSetting, setAppSetting } from '@/services/database';
 import { PlaybackCoordinator } from '@/services/playback-coordinator';
 import { resolvePlaybackUrl, type PlaybackResolveResult } from '@/services/playback-resolver';
 import { bufferPercentFor, buildBufferOptions } from '@/utils/playback';
+import {
+  formatBufferingLabel,
+  PLAYER_CONTROLS_HIDE_MS,
+  shouldAutoHidePlayerControls,
+} from '@/utils/player-overlay';
 import { useEvent } from 'expo';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -168,6 +173,62 @@ function PlayerInfoSkeleton() {
   );
 }
 
+function ThreeDotLoading() {
+  const dots = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
+
+  useEffect(() => {
+    const animations = dots.map((dot, index) => Animated.loop(
+      Animated.sequence([
+        Animated.delay(index * 120),
+        Animated.timing(dot, {
+          toValue: 1,
+          duration: 220,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(dot, {
+          toValue: 0,
+          duration: 220,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.delay((2 - index) * 120),
+      ])
+    ));
+    animations.forEach((animation) => animation.start());
+    return () => animations.forEach((animation) => animation.stop());
+  }, [dots]);
+
+  return (
+    <View style={styles.loadingDots} accessibilityLabel="正在加载">
+      {dots.map((dot, index) => (
+        <Animated.View
+          key={`loading-dot-${index}`}
+          style={[
+            styles.loadingDot,
+            {
+              opacity: dot.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.42, 1],
+              }),
+              transform: [{
+                translateY: dot.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, -8],
+                }),
+              }],
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 export default function PlayerScreen() {
   const params = useLocalSearchParams<{
     url: string;
@@ -208,7 +269,7 @@ export default function PlayerScreen() {
   const [resolveError, setResolveError] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
   const [mediaDuration, setMediaDuration] = useState(0);
-  const [episodeNavVisible, setEpisodeNavVisible] = useState(true);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const [videoHeight, setVideoHeight] = useState(DEFAULT_VIDEO_HEIGHT);
   const [autoPlayEnabled, setAutoPlayEnabled] = useState(true);
   const [autoNextEpisodeEnabled, setAutoNextEpisodeEnabled] = useState(true);
@@ -217,8 +278,8 @@ export default function PlayerScreen() {
 
   const player = useVideoPlayer(null as VideoSource, () => { });
   const progressSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadingProgress = useRef(new Animated.Value(0)).current;
-  const episodeNavTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlsOpacity = useRef(new Animated.Value(1)).current;
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoHeightRef = useRef(DEFAULT_VIDEO_HEIGHT);
   const dragStartHeightRef = useRef(DEFAULT_VIDEO_HEIGHT);
   const lastResolveAlertRef = useRef('');
@@ -237,6 +298,9 @@ export default function PlayerScreen() {
   const { status, error } = useEvent(player, 'statusChange', {
     status: player.status,
     error: undefined,
+  });
+  const { isPlaying } = useEvent(player, 'playingChange', {
+    isPlaying: player.playing,
   });
   const { currentTime, bufferedPosition } = useEvent(player, 'timeUpdate', {
     currentTime: player.currentTime,
@@ -302,7 +366,12 @@ export default function PlayerScreen() {
     },
     adapter: {
       pause: () => player.pause(),
-      replaceAndWaitReady: (source, signal) => replaceVideoSourceAndWaitReady(player, source, signal),
+      replaceAndWaitReady: async (source, signal) => {
+        const ready = await replaceVideoSourceAndWaitReady(player, source, signal);
+        durationRef.current = ready.duration;
+        setMediaDuration(ready.duration);
+        return ready;
+      },
       seek: (positionSeconds) => {
         player.currentTime = positionSeconds;
       },
@@ -449,21 +518,56 @@ export default function PlayerScreen() {
     };
   }, [db, updateVideoHeight]);
 
-  const showEpisodeNavTemporarily = useCallback(() => {
-    setEpisodeNavVisible(true);
-    if (episodeNavTimerRef.current) {
-      clearTimeout(episodeNavTimerRef.current);
+  const showControlsTemporarily = useCallback(() => {
+    setControlsVisible(true);
+    if (controlsTimerRef.current) {
+      clearTimeout(controlsTimerRef.current);
+      controlsTimerRef.current = null;
     }
-    episodeNavTimerRef.current = setTimeout(() => {
-      setEpisodeNavVisible(false);
-      episodeNavTimerRef.current = null;
-    }, 3200);
-  }, []);
+    if (!shouldAutoHidePlayerControls({
+      isPlaying,
+      resolving,
+      playerStatus: status,
+      hasResolveError: Boolean(resolveError),
+    })) {
+      return;
+    }
+    controlsTimerRef.current = setTimeout(() => {
+      setControlsVisible(false);
+      controlsTimerRef.current = null;
+    }, PLAYER_CONTROLS_HIDE_MS);
+  }, [isPlaying, resolveError, resolving, status]);
+
+  useEffect(() => {
+    Animated.timing(controlsOpacity, {
+      toValue: controlsVisible ? 1 : 0,
+      duration: controlsVisible ? 150 : 220,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [controlsOpacity, controlsVisible]);
+
+  useEffect(() => {
+    if (!shouldAutoHidePlayerControls({
+      isPlaying,
+      resolving,
+      playerStatus: status,
+      hasResolveError: Boolean(resolveError),
+    })) {
+      if (controlsTimerRef.current) {
+        clearTimeout(controlsTimerRef.current);
+        controlsTimerRef.current = null;
+      }
+      setControlsVisible(true);
+      return;
+    }
+    showControlsTemporarily();
+  }, [isPlaying, resolveError, resolving, showControlsTemporarily, status]);
 
   useEffect(() => {
     return () => {
-      if (episodeNavTimerRef.current) {
-        clearTimeout(episodeNavTimerRef.current);
+      if (controlsTimerRef.current) {
+        clearTimeout(controlsTimerRef.current);
       }
       if (progressSaveTimerRef.current) {
         clearTimeout(progressSaveTimerRef.current);
@@ -507,25 +611,6 @@ export default function PlayerScreen() {
       void saveVideoHeight();
     },
   }), [saveVideoHeight, updateVideoHeight]);
-
-  useEffect(() => {
-    if (!buffering) {
-      loadingProgress.stopAnimation();
-      loadingProgress.setValue(0);
-      return;
-    }
-
-    const animation = Animated.loop(
-      Animated.timing(loadingProgress, {
-        toValue: 1,
-        duration: 1200,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-      })
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [buffering, loadingProgress]);
 
   useEffect(() => {
     if (!resolveError || lastResolveAlertRef.current === resolveError) return;
@@ -598,15 +683,9 @@ export default function PlayerScreen() {
   const nextEpisode = currentEpisodeIndex >= 0 && currentEpisodeIndex < currentSourceEpisodes.length - 1
     ? currentSourceEpisodes[currentEpisodeIndex + 1]
     : null;
-  const showEpisodeNav = currentSourceEpisodes.length > 1;
-
   useEffect(() => {
-    if (showEpisodeNav) {
-      showEpisodeNavTemporarily();
-    } else {
-      setEpisodeNavVisible(false);
-    }
-  }, [showEpisodeNav, activeEpisode?.url, showEpisodeNavTemporarily]);
+    showControlsTemporarily();
+  }, [activeEpisode?.url, rawUrl, showControlsTemporarily]);
 
   const handlePlayEpisode = useCallback(async (episode: Episode) => {
     if (episode.url === rawUrl) return;
@@ -731,13 +810,9 @@ export default function PlayerScreen() {
     <ThemedView style={styles.container}>
       <View
         style={[styles.videoShell, { height: videoHeight + insets.top, paddingTop: insets.top }]}
-        onTouchStart={showEpisodeNav ? showEpisodeNavTemporarily : undefined}>
+        onTouchStart={showControlsTemporarily}>
         {resolving ? (
-          <View style={[styles.videoState, { height: videoHeight }]}>
-            <ThemedText type="defaultSemiBold" style={styles.videoMessage}>
-              正在解析播放地址
-            </ThemedText>
-          </View>
+          <View style={[styles.videoState, { height: videoHeight }]} />
         ) : resolveError || status === 'error' ? (
           <View style={[styles.videoState, { height: videoHeight }]}>
             <ThemedText type="defaultSemiBold" style={styles.videoMessage}>
@@ -763,52 +838,40 @@ export default function PlayerScreen() {
             style={[styles.video, { height: videoHeight }]}
           />
         )}
-        <LinearGradient
-          colors={['rgba(0,0,0,0.64)', 'rgba(0,0,0,0)']}
-          style={styles.videoOverlay}
-          pointerEvents="none"
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="返回"
-          style={[styles.overlayBackButton, { top: insets.top + Spacing.two }]}
-          onPress={handleBack}
-          hitSlop={8}>
-          <ChevronLeft size={26} color="#fff" strokeWidth={2.4} />
-        </Pressable>
-
-
-        {buffering ? (
-          <View style={styles.bufferingBadge}>
-            <ThemedText type="smallBold" style={styles.bufferingText}>
-              {resolving
-                ? '解析中'
-                : realBufferPercent === null
-                  ? '缓冲中'
-                  : `缓冲中 ${realBufferPercent}%`}
-            </ThemedText>
-          </View>
-        ) : null}
-
+        <Animated.View
+          style={[styles.videoOverlay, { opacity: controlsOpacity }]}
+          pointerEvents="none">
+          <LinearGradient
+            colors={['rgba(0,0,0,0.64)', 'rgba(0,0,0,0)']}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.overlayBackButton,
+            { top: insets.top + Spacing.two, opacity: controlsOpacity },
+          ]}
+          pointerEvents={controlsVisible ? 'box-none' : 'none'}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="返回"
+            style={styles.overlayBackButtonPress}
+            onPress={handleBack}
+            hitSlop={8}>
+            <ChevronLeft size={26} color="#fff" strokeWidth={2.4} />
+          </Pressable>
+        </Animated.View>
 
         {buffering ? (
-          <View style={[styles.bufferingTrack, { backgroundColor: colors.progressTrack }]}>
-            <Animated.View
-              style={[
-                styles.bufferingBar,
-                {
-                  backgroundColor: colors.text,
-                  transform: [
-                    {
-                      translateX: loadingProgress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-SCREEN_WIDTH * 0.35, SCREEN_WIDTH],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            />
+          <View style={[styles.bufferingCenter, { top: insets.top }]} pointerEvents="none">
+            <View style={styles.bufferingPanel}>
+              <ThreeDotLoading />
+              {realBufferPercent !== null ? (
+                <ThemedText type="smallBold" style={styles.bufferingText}>
+                  {formatBufferingLabel(realBufferPercent)}
+                </ThemedText>
+              ) : null}
+            </View>
           </View>
         ) : null}
       </View>
@@ -817,7 +880,7 @@ export default function PlayerScreen() {
         <Pressable
           style={[styles.episodeNavButton, !previousEpisode && styles.episodeNavButtonDisabled]}
           onPress={() => {
-            showEpisodeNavTemporarily();
+            showControlsTemporarily();
             if (previousEpisode) void handlePlayEpisode(previousEpisode);
           }}
           disabled={!previousEpisode}
@@ -833,7 +896,7 @@ export default function PlayerScreen() {
         <Pressable
           style={[styles.episodeNavButton, !nextEpisode && styles.episodeNavButtonDisabled]}
           onPress={() => {
-            showEpisodeNavTemporarily();
+            showControlsTemporarily();
             if (nextEpisode) void handlePlayEpisode(nextEpisode);
           }}
           disabled={!nextEpisode}
@@ -923,21 +986,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bufferingBadge: {
+  overlayBackButtonPress: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bufferingCenter: {
     position: 'absolute',
-    left: '50%',
-    top: '62%',
+    left: 0,
+    right: 0,
+    bottom: 0,
     zIndex: 4,
-    transform: [{ translateX: -54 }, { translateY: -20 }],
-    minWidth: 108,
-    minHeight: 40,
-    borderRadius: 20,
-    paddingHorizontal: Spacing.three,
-    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bufferingPanel: {
+    minWidth: 112,
+    minHeight: 64,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.66)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.one,
-    // backgroundColor: 'rgba(0,0,0,0.58)',
+  },
+  loadingDots: {
+    height: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  loadingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#fff',
   },
   bufferingText: {
     color: '#fff',
@@ -983,20 +1069,6 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  bufferingTrack: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 2,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.16)',
-  },
-  bufferingBar: {
-    width: '25%',
-    height: '100%',
-    backgroundColor: '#fff',
   },
   videoState: {
     width: '100%',
