@@ -7,9 +7,10 @@ import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { VodItem } from '@/models/vod';
 import { searchVod } from '@/services/cms-api';
+import { LatestRequest } from '@/utils/latest-request';
 import { FlashList } from '@shopify/flash-list';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -27,26 +28,32 @@ export default function SearchScreen() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const requestRef = useRef(new LatestRequest());
 
   const doSearch = useCallback(async (kw: string, siteUrl: string) => {
     if (!kw.trim()) return;
+    const requestId = requestRef.current.next();
     setLoading(true);
     setErrorMsg('');
     setSearched(true);
     try {
       console.log('[Search] Searching for:', kw, 'on site:', siteUrl);
       const data = await searchVod(siteUrl, kw.trim());
+      if (!requestRef.current.isCurrent(requestId)) return;
       setResults(data.list ?? []);
       await addSearchHistory(kw.trim(), siteUrl, site?.name ?? '', data.list?.length ?? 0);
       if (!data.list || data.list.length === 0) {
         setErrorMsg(data.msg || '未找到相关影视');
       }
     } catch (err) {
+      if (!requestRef.current.isCurrent(requestId)) return;
       console.error('[Search] Error:', err);
-      setErrorMsg('搜索失败，请检查网络或切换站点');
+      setErrorMsg(err instanceof Error ? err.message : '搜索失败，请检查网络或切换站点');
       setResults([]);
     } finally {
-      setLoading(false);
+      if (requestRef.current.isCurrent(requestId)) {
+        setLoading(false);
+      }
     }
   }, [addSearchHistory, site?.name]);
 

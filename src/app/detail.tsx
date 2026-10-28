@@ -10,6 +10,7 @@ import { useThemeName } from '@/hooks/use-theme';
 import type { Episode, VodDetail } from '@/models/vod';
 import { fetchVodDetail, parseEpisodes } from '@/services/cms-api';
 import { CMS_IMAGE_HEADERS, normalizeImageUrl } from '@/utils/image-url';
+import { LatestRequest } from '@/utils/latest-request';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Heart } from 'lucide-react-native';
@@ -28,21 +29,51 @@ export default function DetailScreen() {
   const [detail, setDetail] = useState<VodDetail | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [retryNonce, setRetryNonce] = useState(0);
+  const requestRef = useRef(new LatestRequest());
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const effectiveSiteUrl = siteUrl || site?.url || '';
   const effectiveDetailUrl = detailUrl || site?.detail || site?.url || effectiveSiteUrl;
 
   useEffect(() => {
-    if (!id || !effectiveSiteUrl) return;
+    abortControllerRef.current?.abort();
+    if (!id || !effectiveSiteUrl) {
+      setLoading(false);
+      setErrorMsg('缺少影片或站点参数，无法加载详情');
+      return;
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const requestId = requestRef.current.next();
     setLoading(true);
-    fetchVodDetail(effectiveSiteUrl, Number(id)).then((data) => {
-      if (data) {
+    setErrorMsg('');
+    fetchVodDetail(effectiveSiteUrl, Number(id), controller.signal)
+      .then((data) => {
+        if (!requestRef.current.isCurrent(requestId)) return;
+        if (!data) {
+          setErrorMsg('未找到影片详情');
+          return;
+        }
         setDetail(data);
         setEpisodes(parseEpisodes(data.vod_play_url, data.vod_play_from, effectiveDetailUrl));
-      }
-      setLoading(false);
-    });
-  }, [id, effectiveSiteUrl, effectiveDetailUrl]);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted || !requestRef.current.isCurrent(requestId)) return;
+        setErrorMsg(error instanceof Error ? error.message : '详情加载失败');
+      })
+      .finally(() => {
+        if (requestRef.current.isCurrent(requestId)) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [effectiveDetailUrl, effectiveSiteUrl, id, retryNonce]);
 
   const handlePlay = useCallback(
     (episode: Episode) => {
@@ -111,12 +142,21 @@ export default function DetailScreen() {
     );
   }
 
-  if (!detail) {
+  if (errorMsg || !detail) {
     return (
       <View style={[styles.container, { backgroundColor: palette.background }]}>
         <ScreenHeader title="详情" subtitle="加载失败" />
         <View style={styles.centerContainer}>
-          <Text style={[styles.centerText, { color: palette.secondaryText }]}>加载失败</Text>
+          <Text style={[styles.centerText, { color: palette.secondaryText }]}>
+            {errorMsg || '加载失败'}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="重新加载详情"
+            style={({ pressed }) => [styles.retryButton, { borderColor: palette.border }, pressed && styles.retryButtonPressed]}
+            onPress={() => setRetryNonce((value) => value + 1)}>
+            <Text style={[styles.retryText, { color: palette.text }]}>重试</Text>
+          </Pressable>
         </View>
       </View>
     );
@@ -200,12 +240,16 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const lightPalette = {
   background: '#F7F7F5',
+  text: '#111111',
   secondaryText: '#8A8A8A',
+  border: '#E8E8E6',
 };
 
 const darkPalette = {
   background: '#0F0F0F',
+  text: '#FAFAFA',
   secondaryText: '#8E8E8E',
+  border: '#2A2A2A',
 };
 
 const styles = StyleSheet.create({
@@ -217,6 +261,23 @@ const styles = StyleSheet.create({
   },
   centerText: {
     fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  retryButton: {
+    minWidth: 96,
+    minHeight: 44,
+    marginTop: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  retryButtonPressed: {
+    opacity: 0.62,
+  },
+  retryText: {
+    fontSize: 14,
     lineHeight: 20,
     fontWeight: '800',
   },

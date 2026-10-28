@@ -523,6 +523,7 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     if (!vodId || !siteUrl) {
       setDetail(null);
       setEpisodes([]);
@@ -531,7 +532,7 @@ export default function PlayerScreen() {
     }
 
     setLoadingDetail(true);
-    fetchVodDetail(siteUrl, Number(vodId))
+    fetchVodDetail(siteUrl, Number(vodId), controller.signal)
       .then((data) => {
         if (!cancelled) {
           setDetail(data);
@@ -551,6 +552,7 @@ export default function PlayerScreen() {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [detailUrl, siteUrl, vodId]);
 
