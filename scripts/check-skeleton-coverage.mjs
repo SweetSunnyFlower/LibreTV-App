@@ -23,6 +23,8 @@ assertFile('src/components/movie/poster-grid-skeleton.tsx', ['SkeletonGroup', 'S
 assertFile('src/components/app-image.tsx', ['SkeletonGroup', 'SkeletonBlock']);
 assertFile('src/app/detail.tsx', ['SkeletonGroup', 'SkeletonBlock']);
 assertFile('src/app/player.tsx', ['SkeletonGroup', 'SkeletonBlock']);
+assertFile('src/components/movie/episode-list.tsx', ['EPISODE_LIST_LAYOUT']);
+assertFile('src/app/player.tsx', ['EPISODE_LIST_LAYOUT', 'rowGap: EPISODE_LIST_LAYOUT.gap']);
 
 for (const provider of ['site-context.tsx', 'user-data-context.tsx', 'download-context.tsx']) {
   assertFile(`src/context/${provider}`, ['isHydrating']);

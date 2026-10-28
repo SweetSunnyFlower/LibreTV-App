@@ -13,6 +13,16 @@ interface EpisodeListProps {
   onDownload: (vodName: string, episode: Episode) => void;
 }
 
+export const EPISODE_LIST_LAYOUT = {
+  marginTop: 18,
+  sectionGap: 12,
+  horizontalPadding: 16,
+  columns: 3,
+  gap: 1,
+  itemWidth: '33.02%',
+  buttonHeight: 38,
+} as const;
+
 function isSameEpisode(episode: Episode, activeEpisode?: Episode | null) {
   if (!activeEpisode) return false;
   return episode.url === activeEpisode.url || (
@@ -120,11 +130,11 @@ const darkPalette = {
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 18,
-    gap: 12,
+    marginTop: EPISODE_LIST_LAYOUT.marginTop,
+    gap: EPISODE_LIST_LAYOUT.sectionGap,
   },
   headerRow: {
-    paddingHorizontal: 16,
+    paddingHorizontal: EPISODE_LIST_LAYOUT.horizontalPadding,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -141,17 +151,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   grid: {
-    paddingHorizontal: 16,
+    paddingHorizontal: EPISODE_LIST_LAYOUT.horizontalPadding,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    rowGap: 1,
-    columnGap: 1,
+    rowGap: EPISODE_LIST_LAYOUT.gap,
+    columnGap: EPISODE_LIST_LAYOUT.gap,
   },
   episodeCell: {
-    width: '33.02%',
+    width: EPISODE_LIST_LAYOUT.itemWidth,
   },
   episodeButton: {
-    minHeight: 38,
+    minHeight: EPISODE_LIST_LAYOUT.buttonHeight,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
