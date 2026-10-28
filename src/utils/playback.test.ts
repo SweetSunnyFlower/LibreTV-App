@@ -35,5 +35,6 @@ describe('playback utilities', () => {
   it('returns a real buffer percentage when duration is known', () => {
     expect(bufferPercentFor(25, 100)).toBe(25);
     expect(bufferPercentFor(25, 0)).toBeNull();
+    expect(bufferPercentFor(-1, 100)).toBeNull();
   });
 });
