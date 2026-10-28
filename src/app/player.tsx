@@ -17,6 +17,7 @@ import { resolvePlaybackUrl, type PlaybackResolveResult } from '@/services/playb
 import { bufferPercentFor, buildBufferOptions } from '@/utils/playback';
 import {
   formatBufferingLabel,
+  PLAYER_BACK_BUTTON_ALIGNMENT,
   PLAYER_CONTROLS_HIDE_MS,
   shouldAutoHidePlayerControls,
 } from '@/utils/player-overlay';
@@ -856,7 +857,10 @@ export default function PlayerScreen() {
         <Animated.View
           style={[
             styles.overlayBackButton,
-            { top: insets.top + Spacing.two, opacity: controlsOpacity },
+            {
+              top: insets.top + PLAYER_BACK_BUTTON_ALIGNMENT.topGap,
+              opacity: controlsOpacity,
+            },
           ]}
           pointerEvents={controlsVisible ? 'box-none' : 'none'}>
           <Pressable
@@ -865,7 +869,11 @@ export default function PlayerScreen() {
             style={styles.overlayBackButtonPress}
             onPress={handleBack}
             hitSlop={8}>
-            <ChevronLeft size={26} color="#fff" strokeWidth={2.4} />
+            <ChevronLeft
+              size={PLAYER_BACK_BUTTON_ALIGNMENT.iconSize}
+              color="#fff"
+              strokeWidth={PLAYER_BACK_BUTTON_ALIGNMENT.iconStrokeWidth}
+            />
           </Pressable>
         </Animated.View>
 
@@ -984,11 +992,11 @@ const styles = StyleSheet.create({
   },
   overlayBackButton: {
     position: 'absolute',
-    left: Spacing.three,
+    left: PLAYER_BACK_BUTTON_ALIGNMENT.left,
     zIndex: 3,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: PLAYER_BACK_BUTTON_ALIGNMENT.size,
+    height: PLAYER_BACK_BUTTON_ALIGNMENT.size,
+    borderRadius: PLAYER_BACK_BUTTON_ALIGNMENT.size / 2,
     backgroundColor: 'rgba(0,0,0,0.42)',
     alignItems: 'center',
     justifyContent: 'center',
