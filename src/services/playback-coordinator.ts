@@ -11,7 +11,7 @@ export type PlaybackStartInput = {
 };
 
 export type PlaybackCoordinatorResult =
-  | { status: 'started'; playableUrl: string }
+  | { status: 'started'; playableUrl: string; result: PlaybackResolveResult }
   | { status: 'cancelled' }
   | { status: 'error'; error: unknown };
 
@@ -84,7 +84,7 @@ export class PlaybackCoordinator {
       if (input.autoPlay) {
         this.dependencies.adapter.play();
       }
-      return { status: 'started', playableUrl: result.playableUrl };
+      return { status: 'started', playableUrl: result.playableUrl, result };
     } catch (error) {
       if (controller.signal.aborted || generation !== this.generation) {
         return { status: 'cancelled' };

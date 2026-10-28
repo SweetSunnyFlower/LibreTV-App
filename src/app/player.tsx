@@ -12,12 +12,14 @@ import { useTheme } from '@/hooks/use-theme';
 import type { Episode, VodDetail } from '@/models/vod';
 import { fetchVodDetail, parseEpisodes } from '@/services/cms-api';
 import { getAppSetting, setAppSetting } from '@/services/database';
+import { PlaybackCoordinator } from '@/services/playback-coordinator';
 import { resolvePlaybackUrl, type PlaybackResolveResult } from '@/services/playback-resolver';
+import { bufferPercentFor, buildBufferOptions } from '@/utils/playback';
 import { useEvent } from 'expo';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
+import { useVideoPlayer, VideoView, type VideoPlayer, type VideoSource } from 'expo-video';
 import { ChevronLeft, ChevronRight, Download, Heart } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -33,6 +35,70 @@ function playbackErrorMessage(message?: string) {
     return '播放地址被资源站拒绝访问（403），通常是防盗链或地址已过期。请点重试重新解析，或切换播放线路/资源站。';
   }
   return `播放器错误：${text}`;
+}
+
+function createAbortError() {
+  const error = new Error('播放请求已取消');
+  error.name = 'AbortError';
+  return error;
+}
+
+function readablePlaybackError(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  const message = String(error);
+  return message && message !== '[object Object]' ? message : '播放失败，请重试';
+}
+
+async function replaceVideoSourceAndWaitReady(
+  player: VideoPlayer,
+  source: VideoSource,
+  signal: AbortSignal
+) {
+  if (signal.aborted) throw createAbortError();
+
+  return new Promise<{ duration: number }>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      sourceSubscription.remove();
+      statusSubscription.remove();
+      signal.removeEventListener('abort', handleAbort);
+      if (timer) clearTimeout(timer);
+    };
+    const finish = (duration: number) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ duration: Number.isFinite(duration) ? Math.max(0, duration) : 0 });
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const handleAbort = () => fail(createAbortError());
+
+    const sourceSubscription = player.addListener('sourceLoad', ({ duration }) => {
+      finish(duration);
+    });
+    const statusSubscription = player.addListener('statusChange', ({ status: nextStatus, error: nextError }) => {
+      if (nextStatus === 'error') {
+        fail(new Error(nextError?.message || '播放器加载失败'));
+      }
+    });
+
+    signal.addEventListener('abort', handleAbort, { once: true });
+    timer = setTimeout(() => {
+      fail(new Error('播放加载超时，请重试'));
+    }, 30000);
+
+    player.replaceAsync(source).then(() => {
+      const duration = Number(player.duration);
+      if (duration > 0) finish(duration);
+    }).catch(fail);
+  });
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -112,6 +178,8 @@ export default function PlayerScreen() {
     episodeName?: string;
     vodName?: string;
     sourceName?: string;
+    sourceIndex?: string;
+    autoPlay?: string;
   }>();
   const router = useRouter();
   const db = useSQLiteContext();
@@ -127,6 +195,8 @@ export default function PlayerScreen() {
   const detailUrl = firstParam(params.detailUrl) || siteUrl;
   const episodeName = firstParam(params.episodeName);
   const sourceName = firstParam(params.sourceName);
+  const sourceIndex = firstParam(params.sourceIndex);
+  const autoPlayParam = firstParam(params.autoPlay);
   const vodNameParam = firstParam(params.vodName);
   const fallbackTitle = title.replace(/\s+-\s+$/, '').trim() || '正在播放';
 
@@ -136,7 +206,8 @@ export default function PlayerScreen() {
   const [resolving, setResolving] = useState(false);
   const [resolveResult, setResolveResult] = useState<PlaybackResolveResult | null>(null);
   const [resolveError, setResolveError] = useState('');
-  const [fakeBufferPercent, setFakeBufferPercent] = useState(0);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const [mediaDuration, setMediaDuration] = useState(0);
   const [episodeNavVisible, setEpisodeNavVisible] = useState(true);
   const [videoHeight, setVideoHeight] = useState(DEFAULT_VIDEO_HEIGHT);
   const [autoPlayEnabled, setAutoPlayEnabled] = useState(true);
@@ -152,11 +223,22 @@ export default function PlayerScreen() {
   const dragStartHeightRef = useRef(DEFAULT_VIDEO_HEIGHT);
   const lastResolveAlertRef = useRef('');
   const lastPlayerAlertRef = useRef('');
+  const detailRef = useRef<VodDetail | null>(null);
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  const recordProgressEnabledRef = useRef(true);
+  const playbackContextRef = useRef({
+    rawUrl,
+    siteUrl,
+    detailUrl,
+    sourceName,
+    title,
+  });
   const { status, error } = useEvent(player, 'statusChange', {
     status: player.status,
     error: undefined,
   });
-  const { currentTime } = useEvent(player, 'timeUpdate', {
+  const { currentTime, bufferedPosition } = useEvent(player, 'timeUpdate', {
     currentTime: player.currentTime,
     currentLiveTimestamp: null,
     currentOffsetFromLive: null,
@@ -164,12 +246,18 @@ export default function PlayerScreen() {
   });
 
   useEffect(() => {
+    playbackContextRef.current = { rawUrl, siteUrl, detailUrl, sourceName, title };
+    detailRef.current = detail;
+  }, [detail, detailUrl, rawUrl, siteUrl, sourceName, title]);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+    durationRef.current = player.duration || mediaDuration;
+  }, [currentTime, mediaDuration, player.duration]);
+
+  useEffect(() => {
     player.timeUpdateEventInterval = 1;
-    player.bufferOptions = {
-      minBufferForPlayback: 10, // 开始播放前至少缓冲多久
-      preferredForwardBufferDuration: 600, // 指定播放器希望向前缓冲多少秒
-      maxBufferBytes: 200 * 1024 * 1024,
-    };
+    player.bufferOptions = buildBufferOptions(Platform.OS);
   }, [player]);
 
   useEffect(() => {
@@ -178,77 +266,137 @@ export default function PlayerScreen() {
       getAppSetting(db, PLAYER_AUTO_PLAY_SETTING_KEY),
       getAppSetting(db, PLAYER_AUTO_NEXT_EPISODE_SETTING_KEY),
       getAppSetting(db, PLAYER_RECORD_PROGRESS_SETTING_KEY),
-    ]).then(([autoPlayValue, autoNextEpisodeValue, recordProgressValue]) => {
-      if (cancelled) return;
-      setAutoPlayEnabled(settingToBoolean(autoPlayValue, true));
-      setAutoNextEpisodeEnabled(settingToBoolean(autoNextEpisodeValue, true));
-      setRecordProgressEnabled(settingToBoolean(recordProgressValue, true));
-      setSettingsLoaded(true);
-    });
+    ])
+      .then(([autoPlayValue, autoNextEpisodeValue, recordProgressValue]) => {
+        if (cancelled) return;
+        const nextAutoPlay = settingToBoolean(autoPlayValue, true);
+        const nextRecordProgress = settingToBoolean(recordProgressValue, true);
+        setAutoPlayEnabled(nextAutoPlay);
+        setAutoNextEpisodeEnabled(settingToBoolean(autoNextEpisodeValue, true));
+        setRecordProgressEnabled(nextRecordProgress);
+        recordProgressEnabledRef.current = nextRecordProgress;
+      })
+      .catch((error) => {
+        console.warn('[Player] Failed to load playback settings, using defaults:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsLoaded(true);
+      });
     return () => {
       cancelled = true;
     };
   }, [db]);
 
-  const resolveAndPlay = useCallback(async () => {
-    setResolveError('');
-    setResolving(true);
-    try {
-      const result = await resolvePlaybackUrl({
-        url: rawUrl,
-        siteUrl,
-        detailUrl,
-        sourceName,
-        title,
+  const coordinator = useMemo(() => new PlaybackCoordinator({
+    resolve: async (url, signal) => {
+      if (signal.aborted) throw createAbortError();
+      const context = playbackContextRef.current;
+      return resolvePlaybackUrl({
+        url,
+        siteUrl: context.siteUrl,
+        detailUrl: context.detailUrl,
+        sourceName: context.sourceName,
+        title: context.title,
       });
-      setResolveResult(result);
-      if (!result.source || result.error) {
-        setResolveError(result.error || '无法解析播放地址');
-        await player.replaceAsync(null);
+    },
+    adapter: {
+      pause: () => player.pause(),
+      replaceAndWaitReady: (source, signal) => replaceVideoSourceAndWaitReady(player, source, signal),
+      seek: (positionSeconds) => {
+        player.currentTime = positionSeconds;
+      },
+      play: () => player.play(),
+    },
+    loadProgress: async (url) => {
+      if (!recordProgressEnabledRef.current) return null;
+      const progressValue = await getAppSetting(db, playbackProgressSettingKey(url));
+      const positionSeconds = progressValue ? Number(progressValue) : NaN;
+      return Number.isFinite(positionSeconds)
+        ? { positionSeconds, durationSeconds: 0 }
+        : null;
+    },
+    saveProgress: async (url, positionSeconds, durationSeconds) => {
+      if (!recordProgressEnabledRef.current) return;
+      await setAppSetting(db, playbackProgressSettingKey(url), String(Math.floor(positionSeconds)));
+      void durationSeconds;
+    },
+    recordStarted: async (result) => {
+      const context = playbackContextRef.current;
+      const currentDetail = detailRef.current;
+      await addWatchHistory({
+        siteUrl: context.siteUrl ?? '',
+        detailUrl: context.detailUrl ?? '',
+        vodId: vodId ? Number(vodId) : null,
+        vodName: vodNameParam ?? currentDetail?.vod_name ?? fallbackTitle,
+        vodPic: currentDetail?.vod_pic ?? '',
+        episodeName: episodeName ?? '',
+        sourceName: context.sourceName ?? '',
+        episodeUrl: context.rawUrl,
+        playableUrl: result.playableUrl,
+      });
+    },
+  }), [addWatchHistory, db, episodeName, fallbackTitle, player, vodId, vodNameParam]);
+
+  const flushPlaybackProgress = useCallback(async () => {
+    if (progressSaveTimerRef.current) {
+      clearTimeout(progressSaveTimerRef.current);
+      progressSaveTimerRef.current = null;
+    }
+    await coordinator.flush(currentTimeRef.current, durationRef.current);
+  }, [coordinator]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    if (!rawUrl) {
+      setResolving(false);
+      setResolveError('播放地址为空');
+      return;
+    }
+
+    let active = true;
+    lastResolveAlertRef.current = '';
+    lastPlayerAlertRef.current = '';
+    setResolveError('');
+    setResolveResult(null);
+    setMediaDuration(0);
+    setResolving(true);
+
+    void coordinator.start({
+      url: rawUrl,
+      autoPlay: autoPlayEnabled || autoPlayParam === '1',
+    }).then((result) => {
+      if (!active || result.status === 'cancelled') return;
+      setResolving(false);
+      if (result.status === 'error') {
+        setResolveError(readablePlaybackError(result.error));
         return;
       }
       console.log('[Player] Resolved source:', {
-        kind: result.kind,
-        playableUrl: result.playableUrl,
-        diagnostics: result.diagnostics,
+        kind: result.result.kind,
+        playableUrl: result.result.playableUrl,
+        diagnostics: result.result.diagnostics,
       });
-      await player.replaceAsync(result.source);
-      if (recordProgressEnabled) {
-        const progressValue = await getAppSetting(db, playbackProgressSettingKey(rawUrl));
-        const progressSeconds = progressValue ? Number(progressValue) : NaN;
-        if (Number.isFinite(progressSeconds) && progressSeconds > 3) {
-          player.currentTime = progressSeconds;
-        }
-      }
-      await addWatchHistory({
-        siteUrl: siteUrl ?? '',
-        detailUrl: detailUrl ?? '',
-        vodId: vodId ? Number(vodId) : null,
-        vodName: vodNameParam ?? detail?.vod_name ?? fallbackTitle,
-        vodPic: detail?.vod_pic ?? '',
-        episodeName: episodeName ?? '',
-        sourceName: sourceName ?? '',
-        episodeUrl: rawUrl,
-        playableUrl: result.playableUrl,
-      });
-      if (autoPlayEnabled) {
-        player.play();
-      }
-    } catch (err) {
-      console.error('[Player] Resolve failed:', err);
-      setResolveError(String(err));
-    } finally {
-      setResolving(false);
-    }
-  }, [rawUrl, siteUrl, detailUrl, sourceName, title, player, addWatchHistory, vodId, vodNameParam, detail, fallbackTitle, episodeName, autoPlayEnabled, recordProgressEnabled, db]);
+      setMediaDuration(player.duration || durationRef.current);
+      setResolveResult(result.result);
+    });
 
-  useEffect(() => {
-    if (settingsLoaded) {
-      resolveAndPlay();
-    }
-  }, [settingsLoaded, resolveAndPlay]);
+    return () => {
+      active = false;
+      void flushPlaybackProgress();
+      coordinator.cancel();
+    };
+  }, [
+    autoPlayEnabled,
+    autoPlayParam,
+    coordinator,
+    flushPlaybackProgress,
+    rawUrl,
+    retryNonce,
+    settingsLoaded,
+  ]);
 
   const buffering = resolving || status === 'loading';
+  const realBufferPercent = bufferPercentFor(bufferedPosition, durationRef.current);
 
   const updateVideoHeight = useCallback((height: number) => {
     const nextHeight = clampVideoHeight(height);
@@ -296,14 +444,20 @@ export default function PlayerScreen() {
   }, []);
 
   useEffect(() => {
-    if (!recordProgressEnabled || currentTime <= 3) return;
+    if (!recordProgressEnabled || currentTime <= 3) {
+      if (progressSaveTimerRef.current) {
+        clearTimeout(progressSaveTimerRef.current);
+        progressSaveTimerRef.current = null;
+      }
+      return;
+    }
     if (progressSaveTimerRef.current) return;
 
     progressSaveTimerRef.current = setTimeout(() => {
       progressSaveTimerRef.current = null;
-      void setAppSetting(db, playbackProgressSettingKey(rawUrl), String(Math.floor(currentTime)));
-    }, 1000);
-  }, [currentTime, db, rawUrl, recordProgressEnabled]);
+      void coordinator.flush(currentTimeRef.current, durationRef.current);
+    }, 2000);
+  }, [coordinator, currentTime, recordProgressEnabled]);
 
   const resizePanResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -323,21 +477,6 @@ export default function PlayerScreen() {
       void saveVideoHeight();
     },
   }), [saveVideoHeight, updateVideoHeight]);
-
-  useEffect(() => {
-    if (!buffering) {
-      setFakeBufferPercent(0);
-      return;
-    }
-
-    const startedAt = Date.now();
-    const timer = setInterval(() => {
-      const elapsed = Date.now() - startedAt;
-      setFakeBufferPercent(Math.min(99.99, Math.floor((elapsed / 6000) * 99.99)));
-    }, 100);
-
-    return () => clearInterval(timer);
-  }, [buffering]);
 
   useEffect(() => {
     if (!buffering) {
@@ -365,45 +504,56 @@ export default function PlayerScreen() {
   }, [dialog, resolveError]);
 
   useEffect(() => {
-    if (status !== 'error') return;
+    if (resolving || status !== 'error') return;
     const message = playbackErrorMessage(error?.message);
     if (lastPlayerAlertRef.current === message) return;
     lastPlayerAlertRef.current = message;
     void dialog.alert('播放出错', message);
-  }, [dialog, status, error?.message]);
+  }, [dialog, error?.message, resolving, status]);
 
   useEffect(() => {
     let cancelled = false;
     if (!vodId || !siteUrl) {
       setDetail(null);
       setEpisodes([]);
+      setLoadingDetail(false);
       return;
     }
 
     setLoadingDetail(true);
-    fetchVodDetail(siteUrl, Number(vodId)).then((data) => {
-      if (!cancelled) {
-        setDetail(data);
-        setEpisodes(data ? parseEpisodes(data.vod_play_url, data.vod_play_from, detailUrl) : []);
-        setLoadingDetail(false);
-      }
-    });
+    fetchVodDetail(siteUrl, Number(vodId))
+      .then((data) => {
+        if (!cancelled) {
+          setDetail(data);
+          setEpisodes(data ? parseEpisodes(data.vod_play_url, data.vod_play_from, detailUrl) : []);
+        }
+      })
+      .catch((error) => {
+        console.warn('[Player] Failed to load Vod detail:', error);
+        if (!cancelled) {
+          setDetail(null);
+          setEpisodes([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDetail(false);
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [vodId, siteUrl]);
+  }, [detailUrl, siteUrl, vodId]);
 
   const hlsOnWeb = Platform.OS === 'web' && resolveResult?.kind === 'hls';
   const shouldShowDiagnostic = !!resolveError || status === 'error' || hlsOnWeb;
   const activeEpisode = useMemo(() => {
     return episodes.find((episode) => {
-      return episode.url === rawUrl || (
-        episode.name === episodeName &&
-        (!sourceName || episode.source === sourceName)
-      );
+      if (episode.url === rawUrl) return true;
+      if (episode.name !== episodeName) return false;
+      if (sourceIndex && String(episode.sourceIndex ?? 0) !== sourceIndex) return false;
+      return !sourceName || episode.source === sourceName;
     }) ?? null;
-  }, [episodes, rawUrl, episodeName, sourceName]);
+  }, [episodes, rawUrl, episodeName, sourceIndex, sourceName]);
   const currentSourceEpisodes = useMemo(() => {
     if (!activeEpisode) return [];
     return episodes.filter((episode) => episode.sourceIndex === activeEpisode.sourceIndex);
@@ -429,6 +579,9 @@ export default function PlayerScreen() {
   const handlePlayEpisode = useCallback(async (episode: Episode) => {
     if (episode.url === rawUrl) return;
 
+    player.pause();
+    await flushPlaybackProgress();
+    coordinator.cancel();
     await saveVideoHeight();
     router.replace({
       pathname: '/player',
@@ -441,9 +594,11 @@ export default function PlayerScreen() {
         episodeName: episode.name,
         vodName: detail?.vod_name ?? vodNameParam ?? fallbackTitle,
         sourceName: episode.source ?? '',
+        sourceIndex: String(episode.sourceIndex ?? 0),
+        autoPlay: '1',
       },
     });
-  }, [router, detail, fallbackTitle, vodId, siteUrl, detailUrl, vodNameParam, rawUrl, saveVideoHeight]);
+  }, [coordinator, detail, detailUrl, fallbackTitle, flushPlaybackProgress, player, rawUrl, router, saveVideoHeight, siteUrl, vodId, vodNameParam]);
 
   useEffect(() => {
     const subscription = player.addListener('playToEnd', () => {
@@ -500,16 +655,28 @@ export default function PlayerScreen() {
   const favoriteActive = detail && siteUrl ? isFavorite(siteUrl, detail.vod_id) : false;
 
   const handleBack = useCallback(() => {
+    player.pause();
+    void flushPlaybackProgress();
+    coordinator.cancel();
     if (router.canGoBack()) {
       router.back();
     } else {
       router.replace('/');
     }
-  }, [router]);
+  }, [coordinator, flushPlaybackProgress, player, router]);
+
+  const handleRetry = useCallback(() => {
+    player.pause();
+    void flushPlaybackProgress();
+    coordinator.cancel();
+    setRetryNonce((value) => value + 1);
+  }, [coordinator, flushPlaybackProgress, player]);
 
   const playerTitleActions = (
     <View style={styles.playerActionRow}>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={favoriteActive ? '取消收藏' : '收藏'}
         style={styles.playerActionButton}
         onPress={handleToggleFavorite}
         disabled={!detail || !siteUrl}
@@ -517,6 +684,8 @@ export default function PlayerScreen() {
         <Heart size={20} color={colors.text} fill={favoriteActive ? colors.text : 'transparent'} />
       </Pressable>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="下载当前剧集"
         style={styles.playerActionButton}
         onPress={handleDownloadCurrent}
         disabled={!rawUrl}
@@ -532,14 +701,24 @@ export default function PlayerScreen() {
         style={[styles.videoShell, { height: videoHeight + insets.top, paddingTop: insets.top }]}
         onTouchStart={showEpisodeNav ? showEpisodeNavTemporarily : undefined}>
         {resolving ? (
-          <View style={styles.videoState}>
-            {/* <ActivityIndicator color="#fff" />
+          <View style={[styles.videoState, { height: videoHeight }]}>
             <ThemedText type="defaultSemiBold" style={styles.videoMessage}>
-              
-            </ThemedText> */}
+              正在解析播放地址
+            </ThemedText>
           </View>
-        ) : resolveError ? (
-          <View style={styles.videoState} />
+        ) : resolveError || status === 'error' ? (
+          <View style={[styles.videoState, { height: videoHeight }]}>
+            <ThemedText type="defaultSemiBold" style={styles.videoMessage}>
+              播放失败
+            </ThemedText>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="重试播放"
+              style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}
+              onPress={handleRetry}>
+              <ThemedText type="smallBold" style={styles.videoMessage}>重试</ThemedText>
+            </Pressable>
+          </View>
         ) : (
           <VideoView
             player={player}
@@ -557,20 +736,24 @@ export default function PlayerScreen() {
           style={styles.videoOverlay}
           pointerEvents="none"
         />
-        {/* <TouchableOpacity
-            style={[styles.overlayBackButton, { top: insets.top + Spacing.two }]}
-            onPress={handleBack}
-            activeOpacity={0.78}>
-            <ChevronLeft size={26} color="#fff" strokeWidth={2.4} />
-          </TouchableOpacity>
-           */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="返回"
+          style={[styles.overlayBackButton, { top: insets.top + Spacing.two }]}
+          onPress={handleBack}
+          hitSlop={8}>
+          <ChevronLeft size={26} color="#fff" strokeWidth={2.4} />
+        </Pressable>
 
 
         {buffering ? (
           <View style={styles.bufferingBadge}>
-            {/* <ActivityIndicator size="small" color="#fff" /> */}
             <ThemedText type="smallBold" style={styles.bufferingText}>
-              缓冲中 {fakeBufferPercent}%
+              {resolving
+                ? '解析中'
+                : realBufferPercent === null
+                  ? '缓冲中'
+                  : `缓冲中 ${realBufferPercent}%`}
             </ThemedText>
           </View>
         ) : null}
@@ -701,9 +884,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: Spacing.three,
     zIndex: 3,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(0,0,0,0.42)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -784,12 +967,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   videoState: {
+    width: '100%',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: Spacing.two,
     backgroundColor: '#000',
   },
   videoMessage: {
     color: '#fff',
+  },
+  retryButton: {
+    minWidth: 88,
+    minHeight: 44,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+  },
+  retryButtonPressed: {
+    opacity: 0.64,
   },
   diagnosticBox: {
     marginHorizontal: Spacing.three,

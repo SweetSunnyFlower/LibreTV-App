@@ -19,7 +19,9 @@ export function normalizePlaybackProgress(positionSeconds: number, durationSecon
   };
 }
 
-export function buildBufferOptions(platform: 'android' | 'ios' | 'web'): BufferOptions {
+export function buildBufferOptions(
+  platform: 'android' | 'ios' | 'web' | 'macos' | 'windows'
+): BufferOptions {
   if (platform === 'android') {
     return {
       minBufferForPlayback: 2,
