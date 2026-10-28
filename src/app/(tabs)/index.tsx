@@ -5,6 +5,7 @@ import type { DoubanContentType } from '@/constants/api';
 import { useThemeName } from '@/hooks/use-theme';
 import type { DoubanMovie } from '@/models/douban';
 import { fetchMovieTags, fetchRecommendedMovies } from '@/services/douban-api';
+import { LatestRequest } from '@/utils/latest-request';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -34,6 +35,8 @@ export default function HomeScreen() {
   const pageStart = useRef(0);
   const hasMore = useRef(true);
   const loadingMoreRef = useRef(false);
+  const tagRequestRef = useRef(new LatestRequest());
+  const movieRequestRef = useRef(new LatestRequest());
 
   const selectedTagIndex = useMemo(() => Math.max(0, tags.indexOf(selectedTag)), [selectedTag, tags]);
 
@@ -99,40 +102,54 @@ export default function HomeScreen() {
     setSelectedTag('');
     pageStart.current = 0;
     hasMore.current = true;
+    const requestId = tagRequestRef.current.next();
     fetchMovieTags(contentType).then((nextTags) => {
+      if (!tagRequestRef.current.isCurrent(requestId)) return;
       console.log('[Home] Tags loaded:', contentType, nextTags);
       setTags(nextTags);
       setSelectedTag(nextTags[0] ?? '');
+    }).catch((error) => {
+      if (!tagRequestRef.current.isCurrent(requestId)) return;
+      console.error('[Home] Tags load error:', error);
+      setErrorMsg('标签加载失败，请检查网络');
     });
   }, [contentType]);
 
   // Load movies when tag changes
   const loadMovies = useCallback(async (tag: string, start = 0) => {
     if (!tag) return;
+    const requestId = movieRequestRef.current.next();
     if (start === 0) {
       setLoading(true);
       setErrorMsg('');
     }
     try {
       const data = await fetchRecommendedMovies(tag, start, contentType);
+      if (!movieRequestRef.current.isCurrent(requestId)) return false;
       if (start === 0) {
         setMovies(data);
       } else {
         setMovies((prev) => [...prev, ...data]);
       }
       hasMore.current = data.length >= 20;
+      pageStart.current = start + data.length;
       if (data.length === 0 && start === 0) {
         setErrorMsg('暂无推荐内容');
       }
+      return true;
     } catch (err) {
+      if (!movieRequestRef.current.isCurrent(requestId)) return false;
       console.error('[Home] Load movies error:', err);
       if (start === 0) {
         setErrorMsg('加载失败，请检查网络');
       }
+      return false;
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
-      loadingMoreRef.current = false;
+      if (movieRequestRef.current.isCurrent(requestId)) {
+        setLoading(false);
+        setLoadingMore(false);
+        loadingMoreRef.current = false;
+      }
     }
   }, [contentType]);
 
@@ -140,6 +157,7 @@ export default function HomeScreen() {
     if (!selectedTag) return;
     pageStart.current = 0;
     hasMore.current = true;
+    movieRequestRef.current.invalidate();
     loadMovies(selectedTag, 0);
   }, [selectedTag, loadMovies]);
 
@@ -147,7 +165,6 @@ export default function HomeScreen() {
     if (loading || loadingMoreRef.current || !hasMore.current || !selectedTag) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
-    pageStart.current += 20;
     await loadMovies(selectedTag, pageStart.current);
   }, [loading, selectedTag, loadMovies]);
 

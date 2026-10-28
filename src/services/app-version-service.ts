@@ -1,8 +1,7 @@
 import { APP_VERSION_ENDPOINTS } from '@/constants/api';
 import type { AppVersionUpdateInfo } from '@/models/app-version';
+import { fetchJsonWithTimeout } from '@/services/http';
 import Constants from 'expo-constants';
-
-const FETCH_TIMEOUT = 8000;
 
 // const MOCK_VERSION_INFO: AppVersionUpdateInfo = {
 //   latestVersion: '1.0.1',
@@ -18,35 +17,24 @@ export function getCurrentAppVersion() {
 export async function fetchLatestAppVersion(): Promise<AppVersionUpdateInfo | null> {
   // return MOCK_VERSION_INFO;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-
   try {
-    const res = await fetch(APP_VERSION_ENDPOINTS.latest, {
+    const data = await fetchJsonWithTimeout<Record<string, unknown>>(APP_VERSION_ENDPOINTS.latest, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
       },
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      console.warn('[AppVersion] Fetch latest version failed:', res.status);
-      return null;
-    }
-
-    const data = await res.json();
+    }, 8000);
     return {
       latestVersion: String(data.latestVersion ?? ''),
       forceUpdate: Boolean(data.forceUpdate),
       updateUrl: String(data.updateUrl ?? ''),
       releaseNotes: data.releaseNotes ? String(data.releaseNotes) : undefined,
+      md5: data.md5 ? String(data.md5) : undefined,
+      size: data.size === undefined ? undefined : Number(data.size),
     };
   } catch (error) {
     console.error('[AppVersion] Fetch latest version error:', error);
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

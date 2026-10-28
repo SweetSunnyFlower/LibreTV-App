@@ -59,7 +59,7 @@
 ### 详情与播放
 
 - 支持影视详情、海报、元信息、播放源与剧集列表。
-- 支持在线播放 HLS / MP4 等媒体资源。
+- 当前在线播放仅支持 HLS / m3u8；MP4、FLV 和网页播放地址不会进入在线剧集列表。
 - 使用 `expo-video` 作为播放器基础能力。
 - 播放页会记录观看历史。
 
@@ -72,8 +72,7 @@
 
 ### 离线下载
 
-- 支持普通媒体文件下载。
-- 支持 HLS / m3u8 下载。
+- 支持 HLS / m3u8 离线下载。
 - 支持暂停、继续、恢复中状态展示。
 - 支持 HLS 分片并发下载，并可在设置中调整并发数量。
 - 下载完成后可从下载列表播放或删除。
@@ -216,14 +215,14 @@ const { site, sites, setActiveSite, refreshSites } = useSite();
 - `src/app/player.tsx`
 - `src/services/playback-resolver.ts`
 
-`playback-resolver` 会根据 URL 类型判断媒体类型：
+`playback-resolver` 会处理以下地址类型：
 
 - HLS / m3u8
-- 普通视频文件
 - 本地文件路径
 - content URI
 
-最终为 `expo-video` 构造可播放 source。
+在线剧集列表只保留 m3u8/HLS。普通 MP4、FLV 和网页播放地址不会作为可选集展示；
+本地已下载文件仍可由播放器打开。
 
 ### 6. 离线下载
 
@@ -241,7 +240,7 @@ const {
 
 #### 普通文件下载
 
-普通视频使用 `expo-file-system` 的下载任务能力，支持进度更新、暂停和继续。
+m3u8/HLS 分片和播放列表使用 `expo-file-system` 的下载任务能力，支持进度更新、暂停和继续。
 
 #### HLS 下载
 

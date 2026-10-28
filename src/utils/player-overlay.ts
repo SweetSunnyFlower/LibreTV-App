@@ -1,0 +1,58 @@
+export const PLAYER_CONTROLS_HIDE_MS = 3200;
+
+export const PLAYER_BACK_BUTTON_ALIGNMENT = {
+  left: 12,
+  topGap: 8,
+  size: 40,
+  iconSize: 27,
+  iconStrokeWidth: 2.15,
+} as const;
+
+export function shouldAutoHidePlayerControls({
+  isPlaying,
+  isBuffering,
+  resolving,
+  playerStatus,
+  hasResolveError,
+}: {
+  isPlaying: boolean;
+  isBuffering: boolean;
+  resolving: boolean;
+  playerStatus: string;
+  hasResolveError: boolean;
+}) {
+  return (isPlaying || isBuffering)
+    && !resolving
+    && !hasResolveError
+    && playerStatus !== 'error';
+}
+
+export function formatBufferingLabel(percent: number | null) {
+  return percent === null ? '正在缓冲' : `正在缓冲 ${percent}%`;
+}
+
+export function shouldHideControlsAfterBuffering({
+  bufferingPending,
+  isBuffering,
+  isPlaying,
+  hasError,
+}: {
+  bufferingPending: boolean;
+  isBuffering: boolean;
+  isPlaying: boolean;
+  hasError: boolean;
+}) {
+  return bufferingPending && !isBuffering && isPlaying && !hasError;
+}
+
+export function shouldMarkPlaybackResumePending({
+  isPlaying,
+  hasError,
+  resolving,
+}: {
+  isPlaying: boolean;
+  hasError: boolean;
+  resolving: boolean;
+}) {
+  return !isPlaying && !hasError && !resolving;
+}

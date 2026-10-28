@@ -24,7 +24,7 @@ import { fetchLatestAppVersion, getCurrentAppVersion, isVersionNewer } from '@/s
 import { useSQLiteContext } from 'expo-sqlite';
 import { ChevronRight, Minus, Plus } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 function settingToBoolean(value: string | null, fallback: boolean) {
   if (value === '1') return true;
@@ -132,6 +132,8 @@ export default function SettingsScreen() {
       setDownloadProgress(null);
       setDownloadVisible(true);
       await downloadAndInstallApk(updateInfo.updateUrl, {
+        expectedSize: updateInfo.size,
+        expectedMd5: updateInfo.md5,
         onProgress: ({ progress }) => {
           setDownloadProgress(progress);
         },
@@ -154,7 +156,6 @@ export default function SettingsScreen() {
         ? [
             {
               text: '立即更新',
-              closeOnPress: false,
               onPress: () => installUpdate(updateInfo),
             },
           ]
@@ -185,6 +186,11 @@ export default function SettingsScreen() {
 
       if (!latestInfo.updateUrl) {
         await dialog.alert('检查失败', '发现新版本，但缺少更新包下载地址。');
+        return;
+      }
+
+      if (Platform.OS !== 'android') {
+        await dialog.alert('暂不支持', '当前平台暂不支持应用内安装更新包，请前往发布页手动更新。');
         return;
       }
 

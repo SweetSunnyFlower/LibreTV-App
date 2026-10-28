@@ -39,6 +39,7 @@ export default function WatchHistoryFolderScreen() {
         episodeName: item.episodeName,
         vodName: item.vodName,
         sourceName: item.sourceName,
+        sourceIndex: item.sourceIndex === null ? undefined : String(item.sourceIndex),
       },
     });
   }, [router]);

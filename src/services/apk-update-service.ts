@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { Platform } from 'react-native';
+import { canInstallApk, validateApkMetadata, validateApkUrl } from '@/utils/apk-validation';
 
 const APK_MIME_TYPE = 'application/vnd.android.package-archive';
 const APK_DIRECTORY_NAME = 'app-updates';
@@ -16,6 +17,8 @@ export type ApkDownloadProgress = {
 
 type DownloadAndInstallApkOptions = {
   onProgress?: (progress: ApkDownloadProgress) => void;
+  expectedSize?: number;
+  expectedMd5?: string;
 };
 
 function getApkFileUri() {
@@ -27,9 +30,10 @@ function getApkFileUri() {
 }
 
 export async function downloadAndInstallApk(updateUrl: string, options: DownloadAndInstallApkOptions = {}) {
-  if (Platform.OS !== 'android') {
+  if (!canInstallApk(Platform.OS)) {
     throw new Error('当前仅支持 Android 安装更新包');
   }
+  validateApkUrl(updateUrl);
 
   const apkUri = getApkFileUri();
   const apkDir = apkUri.slice(0, apkUri.lastIndexOf('/') + 1);
@@ -54,6 +58,18 @@ export async function downloadAndInstallApk(updateUrl: string, options: Download
   if (downloadResult.status < 200 || downloadResult.status >= 300) {
     throw new Error(`更新包下载失败：HTTP ${downloadResult.status}`);
   }
+
+  const fileInfo = await FileSystem.getInfoAsync(downloadResult.uri, {
+    md5: Boolean(options.expectedMd5),
+  });
+  if (!fileInfo.exists || fileInfo.isDirectory) {
+    throw new Error('更新包写入失败');
+  }
+  validateApkMetadata(
+    fileInfo.size,
+    { size: options.expectedSize, md5: options.expectedMd5 },
+    fileInfo.exists ? fileInfo.md5 : null
+  );
 
   options.onProgress?.({
     totalBytesExpectedToWrite: 1,

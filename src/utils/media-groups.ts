@@ -27,8 +27,11 @@ function safeName(value: string) {
   return value.trim() || '未知影片';
 }
 
-export function downloadFolderKey(record: Pick<DownloadRecord, 'vodName'>) {
-  return `download::${safeName(record.vodName)}`;
+export function downloadFolderKey(record: Pick<DownloadRecord, 'vodName' | 'siteUrl' | 'detailUrl'>) {
+  const sourceIdentity = record.detailUrl || record.siteUrl;
+  return sourceIdentity
+    ? `download::${sourceIdentity}::${safeName(record.vodName)}`
+    : `download::name::${safeName(record.vodName)}`;
 }
 
 export function watchHistoryFolderKey(record: Pick<WatchHistoryRecord, 'siteUrl' | 'detailUrl' | 'vodId' | 'vodName'>) {
