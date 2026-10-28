@@ -44,3 +44,15 @@ export function shouldHideControlsAfterBuffering({
 }) {
   return bufferingPending && !isBuffering && isPlaying && !hasError;
 }
+
+export function shouldMarkPlaybackResumePending({
+  isPlaying,
+  hasError,
+  resolving,
+}: {
+  isPlaying: boolean;
+  hasError: boolean;
+  resolving: boolean;
+}) {
+  return !isPlaying && !hasError && !resolving;
+}

@@ -20,6 +20,7 @@ import {
   PLAYER_BACK_BUTTON_ALIGNMENT,
   PLAYER_CONTROLS_HIDE_MS,
   shouldHideControlsAfterBuffering,
+  shouldMarkPlaybackResumePending,
   shouldAutoHidePlayerControls,
 } from '@/utils/player-overlay';
 import { useEvent } from 'expo';
@@ -576,7 +577,10 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     const hasError = Boolean(resolveError) || status === 'error';
-    if (isMediaBuffering) {
+    if (
+      isMediaBuffering
+      || shouldMarkPlaybackResumePending({ isPlaying, hasError, resolving })
+    ) {
       bufferingResumePendingRef.current = true;
       return;
     }
