@@ -56,6 +56,7 @@ export default function DetailScreen() {
           detailUrl: effectiveDetailUrl,
           episodeName: episode.name,
           sourceName: episode.source ?? '',
+          sourceIndex: String(episode.sourceIndex ?? 0),
         },
       });
     },

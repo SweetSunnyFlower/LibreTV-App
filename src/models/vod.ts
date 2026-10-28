@@ -34,6 +34,7 @@ export interface Episode {
   source?: string;
   sourceIndex?: number;
   rawUrl?: string;
+  /** Online episode playback is intentionally restricted to m3u8/HLS. */
   kind?: 'm3u8';
 }
 

@@ -59,7 +59,7 @@
 ### 详情与播放
 
 - 支持影视详情、海报、元信息、播放源与剧集列表。
-- 支持在线播放 HLS / MP4 等媒体资源。
+- 当前在线播放仅支持 HLS / m3u8；MP4、FLV 和网页播放地址不会进入在线剧集列表。
 - 使用 `expo-video` 作为播放器基础能力。
 - 播放页会记录观看历史。
 
@@ -216,14 +216,14 @@ const { site, sites, setActiveSite, refreshSites } = useSite();
 - `src/app/player.tsx`
 - `src/services/playback-resolver.ts`
 
-`playback-resolver` 会根据 URL 类型判断媒体类型：
+`playback-resolver` 会处理以下地址类型：
 
 - HLS / m3u8
-- 普通视频文件
 - 本地文件路径
 - content URI
 
-最终为 `expo-video` 构造可播放 source。
+在线剧集列表只保留 m3u8/HLS。普通 MP4、FLV 和网页播放地址不会作为可选集展示；
+本地已下载文件仍可由播放器打开。
 
 ### 6. 离线下载
 
