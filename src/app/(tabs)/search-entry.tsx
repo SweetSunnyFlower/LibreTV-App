@@ -1,4 +1,6 @@
 import { SearchBar } from '@/components/movie/search-bar';
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
+import { SkeletonBlock, SkeletonGroup } from '@/components/skeletons/skeleton';
 import { useSite } from '@/context/site-context';
 import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
@@ -14,8 +16,13 @@ export default function SearchEntryScreen() {
   const insets = useSafeAreaInsets();
   const themeName = useThemeName();
   const palette = themeName === 'dark' ? darkPalette : lightPalette;
-  const { site } = useSite();
-  const { searchHistory, deleteSearchHistory, clearSearchHistory } = useUserData();
+  const { site, isHydrating: siteHydrating } = useSite();
+  const {
+    searchHistory,
+    deleteSearchHistory,
+    clearSearchHistory,
+    isHydrating: userDataHydrating,
+  } = useUserData();
   const [keyword, setKeyword] = useState('');
 
   const openSearch = useCallback((nextKeyword: string) => {
@@ -54,20 +61,28 @@ export default function SearchEntryScreen() {
           autoFocus={false}
         />
 
-        <Text style={[styles.siteText, { color: palette.secondaryText }]} numberOfLines={1}>
-          {site ? `当前站点 · ${site.name}` : '请选择站点'}
-        </Text>
+        {siteHydrating ? (
+          <SkeletonGroup>
+            <SkeletonBlock style={styles.siteTextSkeleton} />
+          </SkeletonGroup>
+        ) : (
+          <Text style={[styles.siteText, { color: palette.secondaryText }]} numberOfLines={1}>
+            {site ? `当前站点 · ${site.name}` : '请选择站点'}
+          </Text>
+        )}
 
         <View style={styles.historyHeader}>
           <Text style={[styles.sectionTitle, { color: palette.text }]}>近期搜索</Text>
-          {searchHistory.length > 0 ? (
+          {!userDataHydrating && searchHistory.length > 0 ? (
             <Pressable onPress={clearSearchHistory} hitSlop={10}>
               <Text style={[styles.clearText, { color: palette.secondaryText }]}>清空</Text>
             </Pressable>
           ) : null}
         </View>
 
-        {searchHistory.length === 0 ? (
+        {userDataHydrating ? (
+          <ListSkeleton rows={2} variant="history" inset={0} />
+        ) : searchHistory.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={[styles.emptyText, { color: palette.secondaryText }]}>暂无搜索记录</Text>
           </View>
@@ -143,6 +158,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
+  },
+  siteTextSkeleton: {
+    width: 190,
+    height: 12,
   },
   historyHeader: {
     marginTop: 10,

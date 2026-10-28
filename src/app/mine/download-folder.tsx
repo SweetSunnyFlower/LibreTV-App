@@ -1,5 +1,6 @@
 import { DownloadItem } from '@/components/movie/download-item';
 import { ScreenHeader } from '@/components/screen-header';
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
 import { useAppDialog } from '@/context/app-dialog-context';
 import { useDownloads } from '@/context/download-context';
 import { useThemeName } from '@/hooks/use-theme';
@@ -21,7 +22,13 @@ export default function DownloadFolderScreen() {
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
   const dialog = useAppDialog();
-  const { downloads, pauseDownload, resumeDownload, cancelDownload } = useDownloads();
+  const {
+    downloads,
+    isHydrating,
+    pauseDownload,
+    resumeDownload,
+    cancelDownload,
+  } = useDownloads();
   const folderKey = firstParam(params.key) ?? '';
   const title = firstParam(params.title) ?? '下载剧集';
 
@@ -69,14 +76,16 @@ export default function DownloadFolderScreen() {
     <View style={[styles.container, { backgroundColor: palette.background }]}>
       <ScreenHeader
         title={title}
-        subtitle={`${folderDownloads.length} 集下载`}
-        right={folderDownloads.length > 0 ? (
+        subtitle={isHydrating ? undefined : `${folderDownloads.length} 集下载`}
+        right={!isHydrating && folderDownloads.length > 0 ? (
           <Pressable onPress={handleClear} hitSlop={10}>
             <Trash2 size={18} color={palette.secondaryText} strokeWidth={1.8} />
           </Pressable>
         ) : null}
       />
-      {folderDownloads.length === 0 ? (
+      {isHydrating ? (
+        <ListSkeleton rows={3} variant="download" contentContainerStyle={styles.listContent} />
+      ) : folderDownloads.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={[styles.emptyText, { color: palette.secondaryText }]}>暂无下载剧集</Text>
         </View>

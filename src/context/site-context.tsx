@@ -4,6 +4,7 @@ import { getAllSites, setActiveSite as dbSetActiveSite } from '@/services/databa
 import type { CmsSite } from '@/models/site';
 
 interface SiteContextValue {
+  isHydrating: boolean;
   site: CmsSite | null;
   sites: CmsSite[];
   setActiveSite: (id: number) => Promise<void>;
@@ -11,6 +12,7 @@ interface SiteContextValue {
 }
 
 const SiteContext = createContext<SiteContextValue>({
+  isHydrating: true,
   site: null,
   sites: [],
   setActiveSite: async () => {},
@@ -21,6 +23,7 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
   const db = useSQLiteContext();
   const [site, setSite] = useState<CmsSite | null>(null);
   const [sites, setSites] = useState<CmsSite[]>([]);
+  const [isHydrating, setIsHydrating] = useState(true);
 
   const refreshSites = useCallback(async () => {
     const allSites = await getAllSites(db);
@@ -35,7 +38,17 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
   }, [db]);
 
   useEffect(() => {
-    refreshSites();
+    let mounted = true;
+    refreshSites()
+      .catch((error) => {
+        console.warn('[Site] Initial load failed:', error);
+      })
+      .finally(() => {
+        if (mounted) setIsHydrating(false);
+      });
+    return () => {
+      mounted = false;
+    };
   }, [refreshSites]);
 
   const handleSetActiveSite = useCallback(
@@ -48,7 +61,7 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <SiteContext.Provider
-      value={{ site, sites, setActiveSite: handleSetActiveSite, refreshSites }}>
+      value={{ isHydrating, site, sites, setActiveSite: handleSetActiveSite, refreshSites }}>
       {children}
     </SiteContext.Provider>
   );

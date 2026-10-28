@@ -1,5 +1,6 @@
 import { DownloadFolderItem } from '@/components/movie/download-folder-item';
 import { ScreenHeader } from '@/components/screen-header';
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
 import { useDownloads } from '@/context/download-context';
 import { useThemeName } from '@/hooks/use-theme';
 import { groupDownloadFolders, type DownloadFolderGroup } from '@/utils/media-groups';
@@ -12,7 +13,7 @@ export default function MyDownloadsScreen() {
   const router = useRouter();
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
-  const { downloads } = useDownloads();
+  const { downloads, isHydrating } = useDownloads();
   const folders = useMemo(() => groupDownloadFolders(downloads), [downloads]);
 
   const stats = useMemo(() => ({
@@ -37,11 +38,15 @@ export default function MyDownloadsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
-      <ScreenHeader title="我的下载" subtitle={`${downloads.length} 个任务`} />
-      <Text style={[styles.summary, { color: palette.secondaryText }]} numberOfLines={1}>
-        下载中 {stats.active} · 已完成 {stats.completed} · 已暂停 {stats.paused}
-      </Text>
-      {downloads.length === 0 ? (
+      <ScreenHeader title="我的下载" subtitle={isHydrating ? undefined : `${downloads.length} 个任务`} />
+      {isHydrating ? null : (
+        <Text style={[styles.summary, { color: palette.secondaryText }]} numberOfLines={1}>
+          下载中 {stats.active} · 已完成 {stats.completed} · 已暂停 {stats.paused}
+        </Text>
+      )}
+      {isHydrating ? (
+        <ListSkeleton rows={4} variant="download" contentContainerStyle={styles.listContent} />
+      ) : downloads.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={[styles.emptyText, { color: palette.secondaryText }]}>暂无下载内容</Text>
           <Text style={[styles.emptyHint, { color: palette.secondaryText }]}>在影视详情页点击下载按钮即可开始</Text>

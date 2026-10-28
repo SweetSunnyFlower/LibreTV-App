@@ -1,4 +1,5 @@
 import { ScreenHeader } from '@/components/screen-header';
+import { SettingsSkeleton } from '@/components/skeletons/page-skeletons';
 import { UpdateDownloadProgressModal } from '@/components/update-download-progress-modal';
 import { useAppDialog } from '@/context/app-dialog-context';
 import {
@@ -72,6 +73,7 @@ export default function SettingsScreen() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [downloadVisible, setDownloadVisible] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [isHydrating, setIsHydrating] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,18 +82,25 @@ export default function SettingsScreen() {
       getAppSetting(db, PLAYER_AUTO_NEXT_EPISODE_SETTING_KEY),
       getAppSetting(db, PLAYER_RECORD_PROGRESS_SETTING_KEY),
       getAppSetting(db, HLS_CONCURRENT_DOWNLOADS_SETTING_KEY),
-    ]).then(([autoPlayValue, autoNextEpisodeValue, recordProgressValue, hlsConcurrencyValue]) => {
-      if (cancelled) return;
-      setAutoPlay(settingToBoolean(autoPlayValue, true));
-      setAutoNextEpisode(settingToBoolean(autoNextEpisodeValue, true));
-      setRecordProgress(settingToBoolean(recordProgressValue, true));
-      setHlsConcurrency(settingToNumber(
-        hlsConcurrencyValue,
-        DEFAULT_HLS_CONCURRENT_DOWNLOADS,
-        MIN_HLS_CONCURRENT_DOWNLOADS,
-        MAX_HLS_CONCURRENT_DOWNLOADS
-      ));
-    });
+    ])
+      .then(([autoPlayValue, autoNextEpisodeValue, recordProgressValue, hlsConcurrencyValue]) => {
+        if (cancelled) return;
+        setAutoPlay(settingToBoolean(autoPlayValue, true));
+        setAutoNextEpisode(settingToBoolean(autoNextEpisodeValue, true));
+        setRecordProgress(settingToBoolean(recordProgressValue, true));
+        setHlsConcurrency(settingToNumber(
+          hlsConcurrencyValue,
+          DEFAULT_HLS_CONCURRENT_DOWNLOADS,
+          MIN_HLS_CONCURRENT_DOWNLOADS,
+          MAX_HLS_CONCURRENT_DOWNLOADS
+        ));
+      })
+      .catch((error) => {
+        console.warn('[Settings] Initial load failed:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsHydrating(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -189,52 +198,58 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: palette.background }]}>
       <UpdateDownloadProgressModal visible={downloadVisible} progress={downloadProgress} />
       <ScreenHeader title="设置" subtitle="应用偏好" />
-      <ScrollView contentContainerStyle={styles.content}>
-        <ChoiceSettingItem
-          title="主题外观"
-          subtitle="跟随系统、浅色或深色模式"
-          value={themePreference}
-          options={THEME_OPTIONS}
-          onChange={setThemePreference}
-          palette={palette}
-        />
-        <SettingItem
-          title="自动播放"
-          subtitle="进入播放页后自动开始播放"
-          value={autoPlay}
-          onValueChange={toggleAutoPlay}
-          palette={palette}
-        />
-        <SettingItem
-          title="自动播放下一集"
-          subtitle="当前剧集播放结束后自动切换到下一集"
-          value={autoNextEpisode}
-          onValueChange={toggleAutoNextEpisode}
-          palette={palette}
-        />
-        <SettingItem
-          title="记录播放进度"
-          subtitle="保存当前播放位置，下次打开同一集时继续观看"
-          value={recordProgress}
-          onValueChange={toggleRecordProgress}
-          palette={palette}
-        />
-        <NumberSettingItem
-          title="切片并发下载数"
-          subtitle="m3u8 分片同时下载数量，过高可能被资源站限速"
-          value={hlsConcurrency}
-          min={MIN_HLS_CONCURRENT_DOWNLOADS}
-          max={MAX_HLS_CONCURRENT_DOWNLOADS}
-          onChange={updateHlsConcurrency}
-          palette={palette}
-        />
-        <ActionSettingItem
-          title="版本更新"
-          subtitle={checkingUpdate ? '正在检查最新版本...' : `当前版本：${getCurrentAppVersion()}`}
-          disabled={checkingUpdate}
-          onPress={checkVersionUpdate}
-          palette={palette}
-        />
+      <ScrollView contentContainerStyle={isHydrating ? styles.skeletonContent : styles.content}>
+        {isHydrating ? (
+          <SettingsSkeleton rows={6} />
+        ) : (
+          <>
+            <ChoiceSettingItem
+              title="主题外观"
+              subtitle="跟随系统、浅色或深色模式"
+              value={themePreference}
+              options={THEME_OPTIONS}
+              onChange={setThemePreference}
+              palette={palette}
+            />
+            <SettingItem
+              title="自动播放"
+              subtitle="进入播放页后自动开始播放"
+              value={autoPlay}
+              onValueChange={toggleAutoPlay}
+              palette={palette}
+            />
+            <SettingItem
+              title="自动播放下一集"
+              subtitle="当前剧集播放结束后自动切换到下一集"
+              value={autoNextEpisode}
+              onValueChange={toggleAutoNextEpisode}
+              palette={palette}
+            />
+            <SettingItem
+              title="记录播放进度"
+              subtitle="保存当前播放位置，下次打开同一集时继续观看"
+              value={recordProgress}
+              onValueChange={toggleRecordProgress}
+              palette={palette}
+            />
+            <NumberSettingItem
+              title="切片并发下载数"
+              subtitle="m3u8 分片同时下载数量，过高可能被资源站限速"
+              value={hlsConcurrency}
+              min={MIN_HLS_CONCURRENT_DOWNLOADS}
+              max={MAX_HLS_CONCURRENT_DOWNLOADS}
+              onChange={updateHlsConcurrency}
+              palette={palette}
+            />
+            <ActionSettingItem
+              title="版本更新"
+              subtitle={checkingUpdate ? '正在检查最新版本...' : `当前版本：${getCurrentAppVersion()}`}
+              disabled={checkingUpdate}
+              onPress={checkVersionUpdate}
+              palette={palette}
+            />
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -387,6 +402,11 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 16,
+    paddingBottom: 136,
+  },
+  skeletonContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 136,
   },
   settingItem: {

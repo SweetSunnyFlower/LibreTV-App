@@ -1,3 +1,4 @@
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
 import { useDownloads } from '@/context/download-context';
 import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
@@ -11,8 +12,14 @@ export default function MyScreen() {
   const insets = useSafeAreaInsets();
   const themeName = useThemeName();
   const palette = themeName === 'dark' ? darkPalette : lightPalette;
-  const { downloads } = useDownloads();
-  const { favorites, searchHistory, watchHistory } = useUserData();
+  const { downloads, isHydrating: downloadsHydrating } = useDownloads();
+  const {
+    favorites,
+    searchHistory,
+    watchHistory,
+    isHydrating: userDataHydrating,
+  } = useUserData();
+  const isHydrating = downloadsHydrating || userDataHydrating;
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
@@ -25,41 +32,47 @@ export default function MyScreen() {
         </View>
         <Text style={[styles.subtitle, { color: palette.secondaryText }]}>收藏、历史记录和下载内容都在这里</Text>
 
-        <View style={[styles.menuList, { borderColor: palette.border }]}>
-          <MenuItem
-            title="我的收藏"
-            subtitle="已收藏的影视"
-            count={favorites.length}
-            icon={Heart}
-            onPress={() => router.push('/mine/favorites')}
-            palette={palette}
-          />
-          <MenuItem
-            title="搜索历史"
-            subtitle="最近搜索过的关键词"
-            count={searchHistory.length}
-            icon={Search}
-            onPress={() => router.push('/mine/search-history')}
-            palette={palette}
-          />
-          <MenuItem
-            title="观看历史"
-            subtitle="继续上次观看"
-            count={watchHistory.length}
-            icon={Clock}
-            onPress={() => router.push('/mine/watch-history')}
-            palette={palette}
-          />
-          <MenuItem
-            title="我的下载"
-            subtitle="下载任务和离线内容"
-            count={downloads.length}
-            icon={Download}
-            onPress={() => router.push('/mine/downloads')}
-            palette={palette}
-            last
-          />
-        </View>
+        {isHydrating ? (
+          <View style={[styles.menuList, { borderColor: palette.border }]}>
+            <ListSkeleton rows={4} variant="menu" />
+          </View>
+        ) : (
+          <View style={[styles.menuList, { borderColor: palette.border }]}>
+            <MenuItem
+              title="我的收藏"
+              subtitle="已收藏的影视"
+              count={favorites.length}
+              icon={Heart}
+              onPress={() => router.push('/mine/favorites')}
+              palette={palette}
+            />
+            <MenuItem
+              title="搜索历史"
+              subtitle="最近搜索过的关键词"
+              count={searchHistory.length}
+              icon={Search}
+              onPress={() => router.push('/mine/search-history')}
+              palette={palette}
+            />
+            <MenuItem
+              title="观看历史"
+              subtitle="继续上次观看"
+              count={watchHistory.length}
+              icon={Clock}
+              onPress={() => router.push('/mine/watch-history')}
+              palette={palette}
+            />
+            <MenuItem
+              title="我的下载"
+              subtitle="下载任务和离线内容"
+              count={downloads.length}
+              icon={Download}
+              onPress={() => router.push('/mine/downloads')}
+              palette={palette}
+              last
+            />
+          </View>
+        )}
       </ScrollView>
     </View>
   );
