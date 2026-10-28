@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatBufferingLabel,
+  PLAYER_BACK_BUTTON_ALIGNMENT,
   shouldAutoHidePlayerControls,
 } from './player-overlay';
 
@@ -40,5 +41,15 @@ describe('player overlay', () => {
     expect(formatBufferingLabel(37)).toBe('正在缓冲 37%');
     expect(formatBufferingLabel(null)).toBe('正在缓冲');
     expect(formatBufferingLabel(null)).not.toContain('解析');
+  });
+
+  it('matches the detail page back button alignment', () => {
+    expect(PLAYER_BACK_BUTTON_ALIGNMENT).toEqual({
+      left: 12,
+      topGap: 8,
+      size: 40,
+      iconSize: 27,
+      iconStrokeWidth: 2.15,
+    });
   });
 });

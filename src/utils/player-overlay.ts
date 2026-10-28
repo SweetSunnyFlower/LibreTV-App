@@ -1,5 +1,13 @@
 export const PLAYER_CONTROLS_HIDE_MS = 3200;
 
+export const PLAYER_BACK_BUTTON_ALIGNMENT = {
+  left: 12,
+  topGap: 8,
+  size: 40,
+  iconSize: 27,
+  iconStrokeWidth: 2.15,
+} as const;
+
 export function shouldAutoHidePlayerControls({
   isPlaying,
   isBuffering,
