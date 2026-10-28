@@ -6,6 +6,7 @@ import { useSite } from '@/context/site-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { VodClass, VodItem } from '@/models/vod';
 import { fetchCategories, fetchVodByCategory } from '@/services/cms-api';
+import { LatestRequest } from '@/utils/latest-request';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,6 +39,8 @@ export default function CategoriesScreen() {
   const [errorMsg, setErrorMsg] = useState('');
   const pageRef = useRef(1);
   const pageCountRef = useRef(1);
+  const categoryRequestRef = useRef(new LatestRequest());
+  const itemRequestRef = useRef(new LatestRequest());
 
   const parents = useMemo(() => {
     const parentIds = new Set(categories.map((item) => item.type_pid).filter(Boolean));
@@ -62,31 +65,41 @@ export default function CategoriesScreen() {
 
   const loadCategoryItems = useCallback(async (type: VodClass, page = 1, append = false, year?: string) => {
     if (!site) return;
+    const requestId = itemRequestRef.current.next();
     if (page === 1 && !append) setLoadingItems(true);
     if (page > 1) setLoadingMore(true);
     setErrorMsg('');
     try {
       const data = await fetchVodByCategory(site.url, type.type_id, page, year);
+      if (!itemRequestRef.current.isCurrent(requestId)) return false;
       pageRef.current = Number(data.page || page);
       pageCountRef.current = Number(data.pagecount || 1);
       setItems((prev) => (append ? [...prev, ...(data.list ?? [])] : data.list ?? []));
       if (!data.list?.length && page === 1) setErrorMsg('暂无分类内容');
+      return true;
     } catch (err) {
+      if (!itemRequestRef.current.isCurrent(requestId)) return false;
       console.error('[Categories] Load items error:', err);
-      setErrorMsg('分类内容加载失败');
+      setErrorMsg(err instanceof Error ? err.message : '分类内容加载失败');
+      return false;
     } finally {
-      setLoadingItems(false);
-      setRefreshing(false);
-      setLoadingMore(false);
+      if (itemRequestRef.current.isCurrent(requestId)) {
+        setLoadingItems(false);
+        setRefreshing(false);
+        setLoadingMore(false);
+      }
     }
   }, [site]);
 
   const loadCategories = useCallback(async () => {
     if (!site) return;
+    const requestId = categoryRequestRef.current.next();
+    itemRequestRef.current.invalidate();
     setLoadingCategories(true);
     setErrorMsg('');
     try {
       const data = await fetchCategories(site.url);
+      if (!categoryRequestRef.current.isCurrent(requestId)) return;
       setCategories(data);
       const firstParent = data.find((item) => !item.type_pid || item.type_pid === 0) ?? data[0] ?? null;
       const firstChild = firstParent
@@ -99,10 +112,13 @@ export default function CategoriesScreen() {
       if (firstChild) await loadCategoryItems(firstChild, 1, false);
       if (!data.length) setErrorMsg('当前站点暂无分类');
     } catch (err) {
+      if (!categoryRequestRef.current.isCurrent(requestId)) return;
       console.error('[Categories] Load categories error:', err);
-      setErrorMsg('分类加载失败');
+      setErrorMsg(err instanceof Error ? err.message : '分类加载失败');
     } finally {
-      setLoadingCategories(false);
+      if (categoryRequestRef.current.isCurrent(requestId)) {
+        setLoadingCategories(false);
+      }
     }
   }, [site, loadCategoryItems]);
 

@@ -7,6 +7,7 @@ import { useThemeName } from '@/hooks/use-theme';
 import type { CmsSite } from '@/models/site';
 import type { VodItem } from '@/models/vod';
 import { searchVod } from '@/services/cms-api';
+import { aggregateSearchError, aggregateSearchStatus } from '@/utils/search-status';
 import { FlashList } from '@shopify/flash-list';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -35,6 +36,8 @@ export default function AggregateSearchScreen() {
   const [errorMsg, setErrorMsg] = useState('');
   const [completedSites, setCompletedSites] = useState(0);
   const [totalSites, setTotalSites] = useState(0);
+  const [failedSites, setFailedSites] = useState(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const targetSites = useMemo(() => sites.filter((item) => item.url), [sites]);
 
@@ -44,15 +47,20 @@ export default function AggregateSearchScreen() {
 
     if (!targetSites.length) {
       requestIdRef.current += 1;
+      abortControllerRef.current?.abort();
       setSearched(true);
       setLoading(false);
       setResults([]);
       setCompletedSites(0);
       setTotalSites(0);
+      setFailedSites(0);
       setErrorMsg('暂无可用站点');
       return;
     }
 
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     setLoading(true);
@@ -61,10 +69,12 @@ export default function AggregateSearchScreen() {
     setResults([]);
     setCompletedSites(0);
     setTotalSites(targetSites.length);
+    setFailedSites(0);
+    let failedCount = 0;
 
     await Promise.all(targetSites.map(async (site) => {
       try {
-        const data = await searchVod(site.url, text);
+        const data = await searchVod(site.url, text, controller.signal);
         if (requestIdRef.current !== requestId) return;
 
         const list = data.list ?? [];
@@ -79,8 +89,10 @@ export default function AggregateSearchScreen() {
           })),
         ]);
       } catch (error) {
-        // 单个站点失败不应该影响其他站点的结果；searchVod 当前会兜底返回空列表，
-        // 这里再包一层是为了防止未来服务层改成抛错时，聚合搜索整体被中断。
+        if (controller.signal.aborted || requestIdRef.current !== requestId) return;
+        failedCount += 1;
+        setFailedSites((prev) => prev + 1);
+        // 单个站点失败不应影响其他站点；记录失败数，全部失败时展示网络错误。
         console.warn('[AggregateSearch] Site search failed:', site.name, error);
       } finally {
         if (requestIdRef.current === requestId) {
@@ -91,6 +103,7 @@ export default function AggregateSearchScreen() {
 
     if (requestIdRef.current === requestId) {
       setLoading(false);
+      setErrorMsg(aggregateSearchError(failedCount, targetSites.length));
     }
   }, [targetSites]);
 
@@ -99,6 +112,13 @@ export default function AggregateSearchScreen() {
       void doAggregateSearch(initialKeyword);
     }
   }, [doAggregateSearch, initialKeyword]);
+
+  useEffect(() => {
+    return () => {
+      requestIdRef.current += 1;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const handleSubmit = useCallback(() => {
     void doAggregateSearch(keyword);
@@ -119,8 +139,8 @@ export default function AggregateSearchScreen() {
     if (!searched) return `搜索全部站点 · 共 ${targetSites.length} 个站点`;
     if (loading) return `已完成 ${completedSites}/${totalSites} · 已找到 ${results.length} 个结果`;
     if (errorMsg) return errorMsg;
-    return `共搜索 ${totalSites} 个站点 · 找到 ${results.length} 个结果`;
-  }, [completedSites, errorMsg, loading, results.length, searched, targetSites.length, totalSites]);
+    return aggregateSearchStatus(totalSites, failedSites, results.length);
+  }, [completedSites, errorMsg, failedSites, loading, results.length, searched, targetSites.length, totalSites]);
 
   const renderItem = ({ item, index }: { item: AggregateSearchResult; index: number }) => (
     <VodCard
@@ -152,7 +172,7 @@ export default function AggregateSearchScreen() {
     }
 
     if (errorMsg) {
-      return <CenterState title={errorMsg} hint="请先添加或启用资源站点" palette={palette} />;
+      return <CenterState title={errorMsg} hint="请检查网络或稍后重试" palette={palette} />;
     }
 
     return (
