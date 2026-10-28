@@ -493,6 +493,7 @@ export default function PlayerScreen() {
   ]);
 
   const buffering = resolving || status === 'loading';
+  const isMediaBuffering = status === 'loading';
   const realBufferPercent = bufferPercentFor(bufferedPosition, durationRef.current);
 
   const updateVideoHeight = useCallback((height: number) => {
@@ -518,14 +519,14 @@ export default function PlayerScreen() {
     };
   }, [db, updateVideoHeight]);
 
-  const showControlsTemporarily = useCallback(() => {
-    setControlsVisible(true);
+  const scheduleControlsHide = useCallback(() => {
     if (controlsTimerRef.current) {
       clearTimeout(controlsTimerRef.current);
       controlsTimerRef.current = null;
     }
     if (!shouldAutoHidePlayerControls({
       isPlaying,
+      isBuffering: isMediaBuffering,
       resolving,
       playerStatus: status,
       hasResolveError: Boolean(resolveError),
@@ -536,7 +537,12 @@ export default function PlayerScreen() {
       setControlsVisible(false);
       controlsTimerRef.current = null;
     }, PLAYER_CONTROLS_HIDE_MS);
-  }, [isPlaying, resolveError, resolving, status]);
+  }, [isMediaBuffering, isPlaying, resolveError, resolving, status]);
+
+  const showControlsTemporarily = useCallback(() => {
+    setControlsVisible(true);
+    scheduleControlsHide();
+  }, [scheduleControlsHide]);
 
   useEffect(() => {
     Animated.timing(controlsOpacity, {
@@ -550,6 +556,7 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (!shouldAutoHidePlayerControls({
       isPlaying,
+      isBuffering: isMediaBuffering,
       resolving,
       playerStatus: status,
       hasResolveError: Boolean(resolveError),
@@ -561,8 +568,8 @@ export default function PlayerScreen() {
       setControlsVisible(true);
       return;
     }
-    showControlsTemporarily();
-  }, [isPlaying, resolveError, resolving, showControlsTemporarily, status]);
+    scheduleControlsHide();
+  }, [isMediaBuffering, isPlaying, resolveError, resolving, scheduleControlsHide, status]);
 
   useEffect(() => {
     return () => {
@@ -1002,12 +1009,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bufferingPanel: {
-    minWidth: 112,
-    minHeight: 64,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.66)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.one,
@@ -1027,6 +1028,9 @@ const styles = StyleSheet.create({
   },
   bufferingText: {
     color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.72)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   playbackControlBar: {
     minHeight: 42,

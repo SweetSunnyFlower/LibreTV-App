@@ -2,16 +2,18 @@ export const PLAYER_CONTROLS_HIDE_MS = 3200;
 
 export function shouldAutoHidePlayerControls({
   isPlaying,
+  isBuffering,
   resolving,
   playerStatus,
   hasResolveError,
 }: {
   isPlaying: boolean;
+  isBuffering: boolean;
   resolving: boolean;
   playerStatus: string;
   hasResolveError: boolean;
 }) {
-  return isPlaying
+  return (isPlaying || isBuffering)
     && !resolving
     && !hasResolveError
     && playerStatus !== 'error';
