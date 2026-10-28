@@ -3,7 +3,7 @@ import { useAppDialog } from '@/context/app-dialog-context';
 import { downloadAndInstallApk } from '@/services/apk-update-service';
 import { checkAppVersionUpdate, getCurrentAppVersion } from '@/services/app-version-service';
 import { useEffect, useRef, useState } from 'react';
-import { ToastAndroid } from 'react-native';
+import { Platform } from 'react-native';
 
 function getUpdateMessage(latestVersion: string, releaseNotes?: string) {
   const currentVersion = getCurrentAppVersion();
@@ -30,6 +30,7 @@ export function AppVersionUpdateChecker() {
   useEffect(() => {
     if (checkedRef.current) return;
     checkedRef.current = true;
+    if (Platform.OS !== 'android') return;
 
     let isMounted = true;
 
@@ -42,6 +43,8 @@ export function AppVersionUpdateChecker() {
           setDownloadProgress(null);
           setDownloadVisible(true);
           await downloadAndInstallApk(updateInfo.updateUrl, {
+            expectedSize: updateInfo.size,
+            expectedMd5: updateInfo.md5,
             onProgress: ({ progress }) => {
               if (isMounted) {
                 setDownloadProgress(progress);
@@ -51,11 +54,7 @@ export function AppVersionUpdateChecker() {
         } catch (error) {
           console.error('[AppVersion] Install update failed:', error);
           if (isMounted) {
-            if (updateInfo.forceUpdate) {
-              ToastAndroid.show('更新包下载或安装失败，请检查未知来源安装权限', ToastAndroid.LONG);
-            } else {
-              await dialog.alert('更新失败', getInstallErrorMessage(error));
-            }
+            await dialog.alert('更新失败', getInstallErrorMessage(error));
           }
         } finally {
           if (isMounted) {
@@ -73,7 +72,6 @@ export function AppVersionUpdateChecker() {
           ? [
               {
                 text: '立即更新',
-                closeOnPress: false,
                 onPress: installUpdate,
               },
             ]

@@ -3,4 +3,6 @@ export type AppVersionUpdateInfo = {
   forceUpdate: boolean;
   updateUrl: string;
   releaseNotes?: string;
+  md5?: string;
+  size?: number;
 };
