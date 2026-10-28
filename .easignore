@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# Expo / local caches
+.expo/
+.codegraph/
+dist/
+web-build/
+*.tsbuildinfo
+
+# Native build outputs
+android/.gradle/
+android/app/build/
+ios/Pods/
+ios/build/
+
+# debug logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+
+# local env files
+.env*.local

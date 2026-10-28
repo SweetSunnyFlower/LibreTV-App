@@ -1,0 +1,13 @@
+export const PLAYER_HEIGHT_SETTING_KEY = 'player.videoHeight';
+export const PLAYER_AUTO_PLAY_SETTING_KEY = 'player.autoPlay';
+export const PLAYER_RECORD_PROGRESS_SETTING_KEY = 'player.recordProgress';
+export const PLAYER_AUTO_NEXT_EPISODE_SETTING_KEY = 'player.autoNextEpisode';
+export const HLS_CONCURRENT_DOWNLOADS_SETTING_KEY = 'download.hlsConcurrency';
+export const APP_THEME_SETTING_KEY = 'app.theme';
+export const APP_THEME_SYSTEM = 'system';
+export const APP_THEME_LIGHT = 'light';
+export const APP_THEME_DARK = 'dark';
+export type AppThemePreference = typeof APP_THEME_SYSTEM | typeof APP_THEME_LIGHT | typeof APP_THEME_DARK;
+export const DEFAULT_HLS_CONCURRENT_DOWNLOADS = 3;
+export const MIN_HLS_CONCURRENT_DOWNLOADS = 1;
+export const MAX_HLS_CONCURRENT_DOWNLOADS = 8;
