@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatBufferingLabel,
   PLAYER_BACK_BUTTON_ALIGNMENT,
+  shouldHideControlsAfterBuffering,
   shouldAutoHidePlayerControls,
 } from './player-overlay';
 
@@ -51,5 +52,20 @@ describe('player overlay', () => {
       iconSize: 27,
       iconStrokeWidth: 2.15,
     });
+  });
+
+  it('hides controls as soon as playback resumes after buffering', () => {
+    expect(shouldHideControlsAfterBuffering({
+      bufferingPending: true,
+      isBuffering: false,
+      isPlaying: true,
+      hasError: false,
+    })).toBe(true);
+    expect(shouldHideControlsAfterBuffering({
+      bufferingPending: true,
+      isBuffering: false,
+      isPlaying: false,
+      hasError: false,
+    })).toBe(false);
   });
 });
