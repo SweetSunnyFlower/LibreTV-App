@@ -1,5 +1,6 @@
 import { WatchHistoryFolderItem } from '@/components/movie/watch-history-folder-item';
 import { ScreenHeader } from '@/components/screen-header';
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
 import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
 import { groupWatchHistoryFolders, type WatchHistoryFolderGroup } from '@/utils/media-groups';
@@ -12,7 +13,7 @@ export default function WatchHistoryScreen() {
   const router = useRouter();
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
-  const { watchHistory, clearWatchHistory } = useUserData();
+  const { watchHistory, clearWatchHistory, isHydrating } = useUserData();
   const folders = useMemo(() => groupWatchHistoryFolders(watchHistory), [watchHistory]);
 
   const handlePress = useCallback((group: WatchHistoryFolderGroup) => {
@@ -29,7 +30,7 @@ export default function WatchHistoryScreen() {
     <WatchHistoryFolderItem group={item} onPress={handlePress} />
   );
 
-  const clearButton = watchHistory.length ? (
+  const clearButton = !isHydrating && watchHistory.length ? (
     <Pressable onPress={clearWatchHistory} hitSlop={10}>
       <Text style={[styles.clearText, { color: palette.secondaryText }]}>清空</Text>
     </Pressable>
@@ -37,8 +38,14 @@ export default function WatchHistoryScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
-      <ScreenHeader title="观看历史" subtitle={`${folders.length} 部影片 · ${watchHistory.length} 条记录`} right={clearButton} />
-      {watchHistory.length === 0 ? (
+      <ScreenHeader
+        title="观看历史"
+        subtitle={isHydrating ? undefined : `${folders.length} 部影片 · ${watchHistory.length} 条记录`}
+        right={clearButton}
+      />
+      {isHydrating ? (
+        <ListSkeleton rows={4} variant="history" contentContainerStyle={styles.listContent} />
+      ) : watchHistory.length === 0 ? (
         <EmptyState text="暂无观看历史" palette={palette} />
       ) : (
         <FlashList

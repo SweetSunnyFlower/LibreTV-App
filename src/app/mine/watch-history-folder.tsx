@@ -1,4 +1,5 @@
 import { ScreenHeader } from '@/components/screen-header';
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
 import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { WatchHistoryRecord } from '@/models/user-data';
@@ -18,7 +19,7 @@ export default function WatchHistoryFolderScreen() {
   const params = useLocalSearchParams<{ key?: string; title?: string }>();
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
-  const { watchHistory, deleteWatchHistory } = useUserData();
+  const { watchHistory, deleteWatchHistory, isHydrating } = useUserData();
   const folderKey = firstParam(params.key) ?? '';
   const title = firstParam(params.title) ?? '观看记录';
 
@@ -59,8 +60,13 @@ export default function WatchHistoryFolderScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
-      <ScreenHeader title={title} subtitle={`${folderHistory.length} 条观看记录`} />
-      {folderHistory.length === 0 ? (
+      <ScreenHeader
+        title={title}
+        subtitle={isHydrating ? undefined : `${folderHistory.length} 条观看记录`}
+      />
+      {isHydrating ? (
+        <ListSkeleton rows={4} variant="history" contentContainerStyle={styles.listContent} />
+      ) : folderHistory.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={[styles.emptyText, { color: palette.secondaryText }]}>暂无观看记录</Text>
         </View>

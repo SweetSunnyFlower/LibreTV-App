@@ -1,5 +1,6 @@
 import { AppImage } from '@/components/app-image';
 import { EpisodeList } from '@/components/movie/episode-list';
+import { SkeletonBlock, SkeletonGroup } from '@/components/skeletons/skeleton';
 import { VodInfoSection } from '@/components/movie/vod-info-section';
 import { ScreenHeader } from '@/components/screen-header';
 import { useDownloads } from '@/context/download-context';
@@ -104,7 +105,7 @@ export default function DetailScreen() {
     return (
       <View style={[styles.container, { backgroundColor: palette.background }]}>
         <ScreenHeader title="详情" floating />
-        <DetailSkeleton palette={palette} />
+        <DetailSkeleton />
       </View>
     );
   }
@@ -169,26 +170,28 @@ export default function DetailScreen() {
   );
 }
 
-function DetailSkeleton({ palette }: { palette: typeof lightPalette }) {
+function DetailSkeleton() {
   return (
-    <View style={styles.skeletonRoot}>
-      <View style={[styles.skeletonHero, { backgroundColor: palette.skeleton }]} />
-      <View style={styles.skeletonContent}>
-        <View style={[styles.skeletonLineLarge, { backgroundColor: palette.skeleton }]} />
-        <View style={[styles.skeletonLineMedium, { backgroundColor: palette.skeleton }]} />
-        <View style={[styles.skeletonLineSmall, { backgroundColor: palette.skeleton }]} />
-        <View style={styles.skeletonRows}>
-          {Array.from({ length: 3 }, (_, index) => (
-            <View key={`detail-row-${index}`} style={[styles.skeletonRow, { backgroundColor: palette.skeleton }]} />
-          ))}
-        </View>
-        <View style={styles.skeletonEpisodeGrid}>
-          {Array.from({ length: 9 }, (_, index) => (
-            <View key={`episode-skeleton-${index}`} style={[styles.skeletonEpisode, { backgroundColor: palette.skeleton }]} />
-          ))}
+    <SkeletonGroup>
+      <View style={styles.skeletonRoot}>
+        <SkeletonBlock style={styles.skeletonHero} />
+        <View style={styles.skeletonContent}>
+          <SkeletonBlock style={styles.skeletonLineLarge} />
+          <SkeletonBlock style={styles.skeletonLineMedium} />
+          <SkeletonBlock style={styles.skeletonLineSmall} />
+          <View style={styles.skeletonRows}>
+            {Array.from({ length: 3 }, (_, index) => (
+              <SkeletonBlock key={`detail-row-${index}`} style={styles.skeletonRow} />
+            ))}
+          </View>
+          <View style={styles.skeletonEpisodeGrid}>
+            {Array.from({ length: 9 }, (_, index) => (
+              <SkeletonBlock key={`episode-skeleton-${index}`} style={styles.skeletonEpisode} />
+            ))}
+          </View>
         </View>
       </View>
-    </View>
+    </SkeletonGroup>
   );
 }
 
@@ -197,13 +200,11 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const lightPalette = {
   background: '#F7F7F5',
   secondaryText: '#8A8A8A',
-  skeleton: '#E7E7E4',
 };
 
 const darkPalette = {
   background: '#0F0F0F',
   secondaryText: '#8E8E8E',
-  skeleton: '#232323',
 };
 
 const styles = StyleSheet.create({

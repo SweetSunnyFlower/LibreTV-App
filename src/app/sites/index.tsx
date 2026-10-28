@@ -1,4 +1,5 @@
 import { ScreenHeader } from '@/components/screen-header';
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
 import { useAppDialog } from '@/context/app-dialog-context';
 import { useSite } from '@/context/site-context';
 import { useThemeName } from '@/hooks/use-theme';
@@ -14,7 +15,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 export default function SitesScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
-  const { sites, site, setActiveSite, refreshSites } = useSite();
+  const { sites, site, setActiveSite, refreshSites, isHydrating } = useSite();
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
   const dialog = useAppDialog();
@@ -98,17 +99,25 @@ export default function SitesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
-      <ScreenHeader title="站点管理" subtitle={`${sites.length} 个资源站`} right={addButton} />
-      <FlashList
-        data={sites}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={renderItem}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          <Text style={[styles.hintText, { color: palette.secondaryText }]}>选择资源站后，首页搜索和分类内容会使用该站点。</Text>
-        }
+      <ScreenHeader
+        title="站点管理"
+        subtitle={isHydrating ? undefined : `${sites.length} 个资源站`}
+        right={addButton}
       />
+      <Text style={[styles.hintText, { color: palette.secondaryText }]}>
+        选择资源站后，首页搜索和分类内容会使用该站点。
+      </Text>
+      {isHydrating ? (
+        <ListSkeleton rows={5} variant="site" contentContainerStyle={styles.listContent} />
+      ) : (
+        <FlashList
+          data={sites}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
     </View>
   );
 }

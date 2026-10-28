@@ -20,6 +20,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 
 interface DownloadContextValue {
+  isHydrating: boolean;
   downloads: DownloadRecord[];
   startDownload: (vodName: string, episodeName: string, url: string, options?: StartDownloadOptions) => Promise<void>;
   pauseDownload: (id: string) => void;
@@ -28,6 +29,7 @@ interface DownloadContextValue {
 }
 
 const DownloadContext = createContext<DownloadContextValue>({
+  isHydrating: true,
   downloads: [],
   startDownload: async () => {},
   pauseDownload: () => {},
@@ -39,6 +41,7 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   const db = useSQLiteContext();
   const dialog = useAppDialog();
   const [downloads, setDownloads] = useState<DownloadRecord[]>([]);
+  const [isHydrating, setIsHydrating] = useState(true);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,7 +98,13 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   }, [clearPollTimer, refreshDownloads]);
 
   useEffect(() => {
-    refreshDownloads();
+    let mounted = true;
+    refreshDownloads().finally(() => {
+      if (mounted) setIsHydrating(false);
+    });
+    return () => {
+      mounted = false;
+    };
   }, [refreshDownloads]);
 
   useEffect(() => {
@@ -238,7 +247,7 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <DownloadContext.Provider value={{ downloads, startDownload, pauseDownload, resumeDownload, cancelDownload }}>
+    <DownloadContext.Provider value={{ isHydrating, downloads, startDownload, pauseDownload, resumeDownload, cancelDownload }}>
       {children}
     </DownloadContext.Provider>
   );

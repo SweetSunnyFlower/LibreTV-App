@@ -1,4 +1,5 @@
 import { ScreenHeader } from '@/components/screen-header';
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
 import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { SearchHistoryRecord } from '@/models/user-data';
@@ -12,7 +13,12 @@ export default function SearchHistoryScreen() {
   const router = useRouter();
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
-  const { searchHistory, deleteSearchHistory, clearSearchHistory } = useUserData();
+  const {
+    searchHistory,
+    deleteSearchHistory,
+    clearSearchHistory,
+    isHydrating,
+  } = useUserData();
 
   const handlePress = useCallback((item: SearchHistoryRecord) => {
     router.push({ pathname: '/search', params: { keyword: item.keyword } });
@@ -35,7 +41,7 @@ export default function SearchHistoryScreen() {
     </Pressable>
   );
 
-  const clearButton = searchHistory.length ? (
+  const clearButton = !isHydrating && searchHistory.length ? (
     <Pressable onPress={clearSearchHistory} hitSlop={10}>
       <Text style={[styles.clearText, { color: palette.secondaryText }]}>清空</Text>
     </Pressable>
@@ -43,8 +49,14 @@ export default function SearchHistoryScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
-      <ScreenHeader title="搜索历史" subtitle={`${searchHistory.length} 条记录`} right={clearButton} />
-      {searchHistory.length === 0 ? (
+      <ScreenHeader
+        title="搜索历史"
+        subtitle={isHydrating ? undefined : `${searchHistory.length} 条记录`}
+        right={clearButton}
+      />
+      {isHydrating ? (
+        <ListSkeleton rows={4} variant="history" contentContainerStyle={styles.listContent} />
+      ) : searchHistory.length === 0 ? (
         <EmptyState text="暂无搜索历史" palette={palette} />
       ) : (
         <FlashList

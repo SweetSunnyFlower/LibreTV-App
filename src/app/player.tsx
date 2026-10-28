@@ -1,4 +1,5 @@
 import { EpisodeList } from '@/components/movie/episode-list';
+import { SkeletonBlock, SkeletonGroup } from '@/components/skeletons/skeleton';
 import { VodInfoSection } from '@/components/movie/vod-info-section';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -53,32 +54,28 @@ function playbackProgressSettingKey(rawUrl: string) {
   return `player.progress.${rawUrl}`;
 }
 
-type PlayerInfoSkeletonProps = {
-  colors: ReturnType<typeof useTheme>;
-};
-
-function PlayerInfoSkeleton({ colors }: PlayerInfoSkeletonProps) {
-  const skeletonColor = colors.backgroundElement;
-
+function PlayerInfoSkeleton() {
   return (
-    <View style={styles.infoSkeleton}>
-      <View style={styles.skeletonTitleRow}>
-        <View style={[styles.skeletonTitle, { backgroundColor: skeletonColor }]} />
-        <View style={[styles.skeletonAction, { backgroundColor: skeletonColor }]} />
-        <View style={[styles.skeletonAction, { backgroundColor: skeletonColor }]} />
+    <SkeletonGroup>
+      <View style={styles.infoSkeleton}>
+        <View style={styles.skeletonTitleRow}>
+          <SkeletonBlock style={styles.skeletonTitle} />
+          <SkeletonBlock style={styles.skeletonAction} />
+          <SkeletonBlock style={styles.skeletonAction} />
+        </View>
+        <SkeletonBlock style={styles.skeletonMeta} />
+        <View style={styles.skeletonDescription}>
+          <SkeletonBlock style={styles.skeletonLine} />
+          <SkeletonBlock style={[styles.skeletonLine, { width: '88%' }]} />
+          <SkeletonBlock style={[styles.skeletonLine, { width: '62%' }]} />
+        </View>
+        <View style={styles.skeletonEpisodeGrid}>
+          {Array.from({ length: 8 }, (_, index) => (
+            <SkeletonBlock key={`player-info-skeleton-${index}`} style={styles.skeletonEpisode} />
+          ))}
+        </View>
       </View>
-      <View style={[styles.skeletonMeta, { backgroundColor: skeletonColor }]} />
-      <View style={styles.skeletonDescription}>
-        <View style={[styles.skeletonLine, { backgroundColor: skeletonColor }]} />
-        <View style={[styles.skeletonLine, { width: '88%', backgroundColor: skeletonColor }]} />
-        <View style={[styles.skeletonLine, { width: '62%', backgroundColor: skeletonColor }]} />
-      </View>
-      <View style={styles.skeletonEpisodeGrid}>
-        {Array.from({ length: 8 }, (_, index) => (
-          <View key={`player-info-skeleton-${index}`} style={[styles.skeletonEpisode, { backgroundColor: skeletonColor }]} />
-        ))}
-      </View>
-    </View>
+    </SkeletonGroup>
   );
 }
 
@@ -624,7 +621,7 @@ export default function PlayerScreen() {
           </View>
         ) : null}
         {loadingDetail ? (
-          <PlayerInfoSkeleton colors={colors} />
+          <PlayerInfoSkeleton />
         ) : (
           <VodInfoSection
             detail={detail}

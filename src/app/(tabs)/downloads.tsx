@@ -1,4 +1,6 @@
 import { DownloadFolderItem } from '@/components/movie/download-folder-item';
+import { ListSkeleton } from '@/components/skeletons/page-skeletons';
+import { SkeletonBlock, SkeletonGroup } from '@/components/skeletons/skeleton';
 import { useDownloads } from '@/context/download-context';
 import { useThemeName } from '@/hooks/use-theme';
 import { groupDownloadFolders, type DownloadFolderGroup } from '@/utils/media-groups';
@@ -12,7 +14,7 @@ export default function DownloadsScreen() {
   const router = useRouter();
   const themeName = useThemeName();
   const palette = themeName === 'dark' ? darkPalette : lightPalette;
-  const { downloads } = useDownloads();
+  const { downloads, isHydrating } = useDownloads();
   const insets = useSafeAreaInsets();
   const folders = useMemo(() => groupDownloadFolders(downloads), [downloads]);
 
@@ -41,12 +43,20 @@ export default function DownloadsScreen() {
       <View style={[styles.content, { paddingTop: insets.top + 16 }]}>
         <View style={styles.header}>
           <Text style={[styles.title, { color: palette.text }]}>下载</Text>
-          <Text style={[styles.summary, { color: palette.secondaryText }]} numberOfLines={1}>
-            全部 {downloads.length} · 下载中 {stats.active} · 已完成 {stats.completed} · 已暂停 {stats.paused}
-          </Text>
+          {isHydrating ? (
+            <SkeletonGroup>
+              <SkeletonBlock style={styles.summarySkeleton} />
+            </SkeletonGroup>
+          ) : (
+            <Text style={[styles.summary, { color: palette.secondaryText }]} numberOfLines={1}>
+              全部 {downloads.length} · 下载中 {stats.active} · 已完成 {stats.completed} · 已暂停 {stats.paused}
+            </Text>
+          )}
         </View>
 
-        {downloads.length === 0 ? (
+        {isHydrating ? (
+          <ListSkeleton rows={4} variant="download" contentContainerStyle={styles.skeletonList} />
+        ) : downloads.length === 0 ? (
           <View style={styles.centerContainer}>
             <Text style={[styles.emptyTitle, { color: palette.secondaryText }]}>暂无下载任务</Text>
             <Text style={[styles.emptyHint, { color: palette.secondaryText }]}>在影视详情页点击下载按钮即可开始</Text>
@@ -96,6 +106,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  summarySkeleton: {
+    width: 240,
+    height: 13,
+    marginTop: 7,
+  },
+  skeletonList: {
+    paddingTop: 2,
+    paddingBottom: 136,
   },
   listContent: {
     paddingBottom: 136,

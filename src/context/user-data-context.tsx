@@ -16,6 +16,7 @@ import {
 import type { FavoriteInput, FavoriteRecord, SearchHistoryRecord, WatchHistoryInput, WatchHistoryRecord } from '@/models/user-data';
 
 interface UserDataContextValue {
+  isHydrating: boolean;
   favorites: FavoriteRecord[];
   searchHistory: SearchHistoryRecord[];
   watchHistory: WatchHistoryRecord[];
@@ -31,6 +32,7 @@ interface UserDataContextValue {
 }
 
 const UserDataContext = createContext<UserDataContextValue>({
+  isHydrating: true,
   favorites: [],
   searchHistory: [],
   watchHistory: [],
@@ -50,6 +52,7 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
   const [favorites, setFavorites] = useState<FavoriteRecord[]>([]);
   const [searchHistory, setSearchHistory] = useState<SearchHistoryRecord[]>([]);
   const [watchHistory, setWatchHistory] = useState<WatchHistoryRecord[]>([]);
+  const [isHydrating, setIsHydrating] = useState(true);
 
   const refreshUserData = useCallback(async () => {
     const [fav, searches, watches] = await Promise.all([
@@ -63,7 +66,17 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
   }, [db]);
 
   useEffect(() => {
-    refreshUserData();
+    let mounted = true;
+    refreshUserData()
+      .catch((error) => {
+        console.warn('[UserData] Initial load failed:', error);
+      })
+      .finally(() => {
+        if (mounted) setIsHydrating(false);
+      });
+    return () => {
+      mounted = false;
+    };
   }, [refreshUserData]);
 
   const isFavorite = useCallback(
@@ -113,6 +126,7 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
   return (
     <UserDataContext.Provider
       value={{
+        isHydrating,
         favorites,
         searchHistory,
         watchHistory,

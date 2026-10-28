@@ -1,4 +1,5 @@
 import { MinimalPosterCard } from '@/components/movie/minimal-poster-card';
+import { PosterGridSkeleton } from '@/components/movie/poster-grid-skeleton';
 import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { useUserData } from '@/context/user-data-context';
@@ -17,7 +18,7 @@ export default function FavoritesScreen() {
   const router = useRouter();
   const themeName = useThemeName();
   const palette = themeName === 'dark' ? darkPalette : lightPalette;
-  const { favorites, toggleFavorite } = useUserData();
+  const { favorites, toggleFavorite, isHydrating } = useUserData();
 
   const handlePress = useCallback((item: FavoriteRecord) => {
     router.push({
@@ -61,8 +62,10 @@ export default function FavoritesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
-      <ScreenHeader title="我的收藏" subtitle={`${favorites.length} 个收藏`} />
-      {favorites.length === 0 ? (
+      <ScreenHeader title="我的收藏" subtitle={isHydrating ? undefined : `${favorites.length} 个收藏`} />
+      {isHydrating ? (
+        <PosterGridSkeleton contentContainerStyle={styles.listContent} />
+      ) : favorites.length === 0 ? (
         <EmptyState text="暂无收藏" />
       ) : (
         <FlashList

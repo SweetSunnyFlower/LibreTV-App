@@ -1,11 +1,12 @@
 import { useAppDialog } from '@/context/app-dialog-context';
 import { useSite } from '@/context/site-context';
+import { SiteFormSkeleton } from '@/components/skeletons/page-skeletons';
 import { useThemeName } from '@/hooks/use-theme';
 import { addSite, updateSite } from '@/services/database';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { ChevronLeft } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -13,18 +14,25 @@ export default function SiteEditScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const { sites, refreshSites } = useSite();
+  const { sites, refreshSites, isHydrating } = useSite();
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
   const insets = useSafeAreaInsets();
   const dialog = useAppDialog();
 
   const existingSite = id ? sites.find((s) => s.id === Number(id)) : null;
-  const isEdit = !!existingSite;
+  const isEdit = Boolean(id);
 
   const [url, setUrl] = useState(existingSite?.url ?? '');
   const [name, setName] = useState(existingSite?.name ?? '');
   const [detail, setDetail] = useState(existingSite?.detail ?? '');
+
+  useEffect(() => {
+    if (!existingSite) return;
+    setName(existingSite.name);
+    setUrl(existingSite.url);
+    setDetail(existingSite.detail);
+  }, [existingSite]);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -63,39 +71,51 @@ export default function SiteEditScreen() {
           <Text style={[styles.headerTitle, { color: palette.text }]}>{isEdit ? '编辑站点' : '添加站点'}</Text>
           <Text style={[styles.headerSubtitle, { color: palette.secondaryText }]}>CMS 资源站配置</Text>
         </View>
-        <Pressable style={({ pressed }) => [styles.saveButton, pressed && { opacity: 0.6 }]} onPress={handleSave} hitSlop={8}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.saveButton,
+            isHydrating && styles.saveButtonDisabled,
+            pressed && !isHydrating && { opacity: 0.6 },
+          ]}
+          onPress={handleSave}
+          disabled={isHydrating || (isEdit && !existingSite)}
+          hitSlop={8}>
           <Text style={[styles.saveText, { color: palette.text }]}>保存</Text>
         </Pressable>
       </View>
 
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
-        <Field
-          label="站点名称"
-          value={name}
-          onChangeText={setName}
-          placeholder="例: 测试资源"
-          palette={palette}
-        />
-        <Field
-          label="站点地址"
-          value={url}
-          onChangeText={setUrl}
-          placeholder="例: https://example.com"
-          palette={palette}
-          keyboardType="url"
-        />
-        <Field
-          label="详情地址"
-          hint="可选"
-          value={detail}
-          onChangeText={setDetail}
-          placeholder="例: https://example.com"
-          palette={palette}
-          keyboardType="url"
-        />
+      {isHydrating ? (
+        <SiteFormSkeleton />
+      ) : (
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
+          <Field
+            label="站点名称"
+            value={name}
+            onChangeText={setName}
+            placeholder="例: 测试资源"
+            palette={palette}
+          />
+          <Field
+            label="站点地址"
+            value={url}
+            onChangeText={setUrl}
+            placeholder="例: https://example.com"
+            palette={palette}
+            keyboardType="url"
+          />
+          <Field
+            label="详情地址"
+            hint="可选"
+            value={detail}
+            onChangeText={setDetail}
+            placeholder="例: https://example.com"
+            palette={palette}
+            keyboardType="url"
+          />
 
-        <Text style={[styles.helper, { color: palette.secondaryText }]}>站点地址为 CMS 采集接口的根地址，搜索接口为：{'{地址}/api.php/provide/vod/?ac=detail&wd=关键词'}</Text>
-      </ScrollView>
+          <Text style={[styles.helper, { color: palette.secondaryText }]}>站点地址为 CMS 采集接口的根地址，搜索接口为：{'{地址}/api.php/provide/vod/?ac=detail&wd=关键词'}</Text>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -187,6 +207,9 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'flex-end',
     justifyContent: 'center',
+  },
+  saveButtonDisabled: {
+    opacity: 0.42,
   },
   saveText: {
     fontSize: 14,

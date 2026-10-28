@@ -1,5 +1,5 @@
 import { POSTER_GRID_COLUMNS, POSTER_GRID_GAP, POSTER_GRID_ITEM_HEIGHT, POSTER_GRID_ITEM_WIDTH } from '@/components/movie/minimal-poster-card';
-import { useThemeName } from '@/hooks/use-theme';
+import { SkeletonBlock, SkeletonGroup } from '@/components/skeletons/skeleton';
 import { FlashList } from '@shopify/flash-list';
 import { StyleSheet, View } from 'react-native';
 
@@ -10,28 +10,22 @@ type PosterGridSkeletonProps = {
 };
 
 export function PosterGridSkeleton({ contentContainerStyle }: PosterGridSkeletonProps) {
-  const isDark = useThemeName() === 'dark';
-  const skeletonColor = isDark ? '#232323' : '#E7E7E4';
-
   return (
-    <FlashList
-      style={styles.list}
-      data={SKELETON_ITEMS}
-      keyExtractor={(item) => item}
-      numColumns={POSTER_GRID_COLUMNS}
-      key="poster-grid-skeleton"
-      contentContainerStyle={[styles.content, contentContainerStyle]}
-      renderItem={({ index }) => (
-        <View
-          style={[
-            styles.item,
-            { backgroundColor: skeletonColor },
-            index % POSTER_GRID_COLUMNS !== POSTER_GRID_COLUMNS - 1 && styles.gap,
-          ]}>
-          <View style={styles.overlay} />
-        </View>
-      )}
-    />
+    <SkeletonGroup>
+      <FlashList
+        style={styles.list}
+        data={SKELETON_ITEMS}
+        keyExtractor={(item) => item}
+        numColumns={POSTER_GRID_COLUMNS}
+        key="poster-grid-skeleton"
+        contentContainerStyle={[styles.content, contentContainerStyle]}
+        renderItem={({ index }) => (
+          <View style={index % POSTER_GRID_COLUMNS !== POSTER_GRID_COLUMNS - 1 && styles.gap}>
+            <SkeletonBlock style={styles.item} />
+          </View>
+        )}
+      />
+    </SkeletonGroup>
   );
 }
 
@@ -51,9 +45,5 @@ const styles = StyleSheet.create({
   },
   gap: {
     marginRight: POSTER_GRID_GAP,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.08)',
   },
 });
