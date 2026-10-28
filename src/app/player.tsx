@@ -1,4 +1,4 @@
-import { EpisodeList } from '@/components/movie/episode-list';
+import { EpisodeList, EPISODE_LIST_LAYOUT } from '@/components/movie/episode-list';
 import { SkeletonBlock, SkeletonGroup } from '@/components/skeletons/skeleton';
 import { VodInfoSection } from '@/components/movie/vod-info-section';
 import { ThemedText } from '@/components/themed-text';
@@ -63,15 +63,38 @@ function PlayerInfoSkeleton() {
           <SkeletonBlock style={styles.skeletonAction} />
           <SkeletonBlock style={styles.skeletonAction} />
         </View>
-        <SkeletonBlock style={styles.skeletonMeta} />
-        <View style={styles.skeletonDescription}>
-          <SkeletonBlock style={styles.skeletonLine} />
-          <SkeletonBlock style={[styles.skeletonLine, { width: '88%' }]} />
-          <SkeletonBlock style={[styles.skeletonLine, { width: '62%' }]} />
+        <SkeletonBlock style={[styles.skeletonMeta, { width: '42%' }]} />
+        <SkeletonBlock style={[styles.skeletonMeta, { width: '72%' }]} />
+        <View style={styles.skeletonInfoRow}>
+          <SkeletonBlock style={styles.skeletonLabel} />
+          <SkeletonBlock style={[styles.skeletonLine, { width: '48%' }]} />
+        </View>
+        <View style={styles.skeletonInfoRow}>
+          <SkeletonBlock style={styles.skeletonLabel} />
+          <View style={styles.skeletonValueGroup}>
+            <SkeletonBlock style={styles.skeletonLine} />
+            <SkeletonBlock style={[styles.skeletonLine, { width: '86%' }]} />
+            <SkeletonBlock style={[styles.skeletonLine, { width: '58%' }]} />
+          </View>
+        </View>
+        <View style={styles.skeletonInfoRow}>
+          <SkeletonBlock style={styles.skeletonLabel} />
+          <View style={styles.skeletonValueGroup}>
+            <SkeletonBlock style={styles.skeletonLine} />
+            <SkeletonBlock style={[styles.skeletonLine, { width: '75%' }]} />
+          </View>
+        </View>
+      </View>
+      <View style={styles.skeletonEpisodeSection}>
+        <View style={styles.skeletonEpisodeHeader}>
+          <SkeletonBlock style={styles.skeletonEpisodeTitle} />
+          <SkeletonBlock style={styles.skeletonEpisodeMeta} />
         </View>
         <View style={styles.skeletonEpisodeGrid}>
-          {Array.from({ length: 8 }, (_, index) => (
-            <SkeletonBlock key={`player-info-skeleton-${index}`} style={styles.skeletonEpisode} />
+          {Array.from({ length: 9 }, (_, index) => (
+            <View key={`player-info-skeleton-${index}`} style={styles.skeletonEpisodeCell}>
+              <SkeletonBlock style={styles.skeletonEpisode} />
+            </View>
           ))}
         </View>
       </View>
@@ -797,27 +820,60 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   skeletonMeta: {
-    width: '64%',
-    height: 14,
+    height: 12,
     opacity: 0.72,
   },
-  skeletonDescription: {
-    gap: Spacing.two,
+  skeletonInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  skeletonLabel: {
+    width: 34,
+    height: 12,
+    opacity: 0.72,
+  },
+  skeletonValueGroup: {
+    flex: 1,
+    gap: 6,
   },
   skeletonLine: {
     width: '100%',
     height: 12,
     opacity: 0.64,
   },
+  skeletonEpisodeSection: {
+    marginTop: EPISODE_LIST_LAYOUT.marginTop,
+    gap: EPISODE_LIST_LAYOUT.sectionGap,
+  },
+  skeletonEpisodeHeader: {
+    paddingHorizontal: EPISODE_LIST_LAYOUT.horizontalPadding,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  skeletonEpisodeTitle: {
+    width: 72,
+    height: 22,
+  },
+  skeletonEpisodeMeta: {
+    width: 104,
+    height: 16,
+  },
   skeletonEpisodeGrid: {
+    paddingHorizontal: EPISODE_LIST_LAYOUT.horizontalPadding,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.two,
-    paddingTop: Spacing.one,
+    rowGap: EPISODE_LIST_LAYOUT.gap,
+    columnGap: EPISODE_LIST_LAYOUT.gap,
+  },
+  skeletonEpisodeCell: {
+    width: EPISODE_LIST_LAYOUT.itemWidth,
   },
   skeletonEpisode: {
-    width: (SCREEN_WIDTH - Spacing.three * 2 - Spacing.two * 3) / 4,
-    height: 38,
+    width: '100%',
+    height: EPISODE_LIST_LAYOUT.buttonHeight,
     opacity: 0.72,
   },
 });
