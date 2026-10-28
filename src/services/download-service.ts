@@ -15,6 +15,8 @@ import {
   updateDownloadRequestedState,
 } from '@/services/database';
 import { notifyDownloadCompletedAsync } from '@/services/download-notification-service';
+import { buildFileDownloadName } from '@/utils/download-path';
+import { runConcurrentWorkers } from '@/utils/concurrent-workers';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
 
@@ -98,11 +100,33 @@ export function looksLikePlayerPage(url: string) {
   return lower.endsWith('.html') || lower.includes('/vod/play') || lower.includes('/vodplay') || lower.includes('/play/');
 }
 
-function mediaExtensionFromUrl(url: string) {
-  const cleanUrl = url.split('?')[0]?.split('#')[0] ?? '';
-  const match = cleanUrl.match(/\.([a-z0-9]{2,5})$/i);
-  const ext = match?.[1]?.toLowerCase();
-  return ext && ['mp4', 'mov', 'm4v', 'webm', 'mkv'].includes(ext) ? ext : 'mp4';
+async function validateFileDownloadUrl(url: string, headers?: Record<string, string>) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(url, {
+      method: 'HEAD',
+      headers,
+      signal: controller.signal,
+    });
+    if (response.status === 405 || response.status === 501) return;
+    if (!response.ok) {
+      throw new Error(`下载地址不可用：HTTP ${response.status}`);
+    }
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+    if (contentType.includes('text/html')) {
+      throw new Error('当前播放地址是网页播放页，暂不能直接保存为本地视频');
+    }
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength <= 0) {
+      throw new Error('下载文件为空');
+    }
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('下载地址检测超时，请稍后重试');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function extensionFromUrl(url: string, fallback = '.ts') {
@@ -462,6 +486,7 @@ export async function runHlsDownloadSlice({
   let nextIndex = 0;
   let deadlineReached = false;
   let lastProgressFlush = 0;
+  const resourceController = new AbortController();
 
   const flushProgress = async (force = false, forcedState?: DownloadState) => {
     const complete = downloaded >= manifest.resources.length;
@@ -480,8 +505,8 @@ export async function runHlsDownloadSlice({
   if (pending.length === 0) return;
   if (!foreground) pending = pending.slice(0, maxSegments);
 
-  const worker = async () => {
-    while (!controller?.paused) {
+  const worker = async (workerControl: { fail: (error: unknown) => void; failed: () => boolean }) => {
+    while (!workerControl.failed() && !controller?.paused) {
       if (Date.now() - startedAt >= deadlineMs) {
         deadlineReached = true;
         return;
@@ -495,7 +520,17 @@ export async function runHlsDownloadSlice({
 
       const resourceFile = new File(hlsDir, resource.fileName);
       if (!resourceFile.exists) {
-        await File.downloadFileAsync(resource.url, resourceFile, { headers, idempotent: true });
+        try {
+          await File.downloadFileAsync(resource.url, resourceFile, {
+            headers,
+            idempotent: true,
+            signal: resourceController.signal,
+          });
+        } catch (error) {
+          workerControl.fail(error);
+          resourceController.abort();
+          return;
+        }
       }
       downloaded += 1;
 
@@ -506,7 +541,7 @@ export async function runHlsDownloadSlice({
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker));
+  await runConcurrentWorkers(Math.min(concurrency, pending.length), worker);
 
   const stoppedState = resolveHlsStoppedState(controller, deadlineReached);
   if (stoppedState) {
@@ -562,8 +597,12 @@ export async function startDownloadRecord(db: SQLiteDatabase, vodName: string, e
   const hls = isHlsUrl(url);
   const hlsDir = hls ? new Directory(downloadDir, `${safeName}_${id}`) : null;
   if (hlsDir) await ensureDirectoryExists(hlsDir);
-  const extension = mediaExtensionFromUrl(url);
-  const dest = hlsDir ? new File(hlsDir, 'index.m3u8') : new File(downloadDir, `${safeName}.${extension}`);
+  if (!hls) {
+    await validateFileDownloadUrl(url, buildDownloadHeaders(options));
+  }
+  const dest = hlsDir
+    ? new File(hlsDir, 'index.m3u8')
+    : new File(downloadDir, buildFileDownloadName(vodName, episodeName, id, url));
   const headers = buildDownloadHeaders(options);
   const downloadType: DownloadType = hls ? 'hls' : 'file';
 
