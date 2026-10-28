@@ -3,6 +3,7 @@ import {
   formatBufferingLabel,
   PLAYER_BACK_BUTTON_ALIGNMENT,
   shouldHideControlsAfterBuffering,
+  shouldMarkPlaybackResumePending,
   shouldAutoHidePlayerControls,
 } from './player-overlay';
 
@@ -66,6 +67,19 @@ describe('player overlay', () => {
       isBuffering: false,
       isPlaying: false,
       hasError: false,
+    })).toBe(false);
+  });
+
+  it('tracks a paused or rebuffering player even when status stays ready', () => {
+    expect(shouldMarkPlaybackResumePending({
+      isPlaying: false,
+      hasError: false,
+      resolving: false,
+    })).toBe(true);
+    expect(shouldMarkPlaybackResumePending({
+      isPlaying: false,
+      hasError: false,
+      resolving: true,
     })).toBe(false);
   });
 });
