@@ -789,19 +789,16 @@ const styles = StyleSheet.create({
   skeletonTitle: {
     flex: 1,
     height: 24,
-    borderRadius: 12,
     opacity: 0.9,
   },
   skeletonAction: {
     width: 32,
     height: 32,
-    borderRadius: 16,
     opacity: 0.72,
   },
   skeletonMeta: {
     width: '64%',
     height: 14,
-    borderRadius: 7,
     opacity: 0.72,
   },
   skeletonDescription: {
@@ -810,7 +807,6 @@ const styles = StyleSheet.create({
   skeletonLine: {
     width: '100%',
     height: 12,
-    borderRadius: 6,
     opacity: 0.64,
   },
   skeletonEpisodeGrid: {
@@ -822,7 +818,6 @@ const styles = StyleSheet.create({
   skeletonEpisode: {
     width: (SCREEN_WIDTH - Spacing.three * 2 - Spacing.two * 3) / 4,
     height: 38,
-    borderRadius: 12,
     opacity: 0.72,
   },
 });
