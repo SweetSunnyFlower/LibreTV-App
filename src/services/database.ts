@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { PREDEFINED_SITES } from '@/constants/sites';
 import type { DownloadRecord, DownloadRequestedState, DownloadState, DownloadType } from '@/models/download';
 import type { FavoriteInput, WatchHistoryInput } from '@/models/user-data';
+import { stableWatchHistoryId } from '@/utils/watch-history';
 
 function favoriteId(siteUrl: string, vodId: number) {
   return `${siteUrl}::${vodId}`;
@@ -13,13 +14,6 @@ function normalizeKeyword(keyword: string) {
 
 function searchHistoryId(siteUrl: string, keyword: string) {
   return `${siteUrl}::${normalizeKeyword(keyword)}`;
-}
-
-function watchHistoryId(input: { siteUrl?: string; vodId?: number | null; episodeUrl: string; episodeName?: string }) {
-  if (input.siteUrl && input.vodId) {
-    return `${input.siteUrl}::${input.vodId}::${input.episodeName ?? ''}::${input.episodeUrl}`;
-  }
-  return `local::${input.episodeUrl}`;
 }
 
 type DownloadRow = Omit<DownloadRecord, 'state' | 'downloadType' | 'requestedState'> & {
@@ -155,6 +149,7 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       vodPic TEXT NOT NULL DEFAULT '',
       episodeName TEXT NOT NULL DEFAULT '',
       sourceName TEXT NOT NULL DEFAULT '',
+      sourceIndex INTEGER,
       episodeUrl TEXT NOT NULL,
       playableUrl TEXT NOT NULL DEFAULT '',
       positionMillis INTEGER NOT NULL DEFAULT 0,
@@ -186,6 +181,10 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
   await ensureColumn(db, 'downloads', 'leaseUntil', `INTEGER NOT NULL DEFAULT 0`, existingDownloadColumns);
   await ensureColumn(db, 'downloads', 'lastError', `TEXT NOT NULL DEFAULT ''`, existingDownloadColumns);
   await ensureColumn(db, 'downloads', 'retryCount', `INTEGER NOT NULL DEFAULT 0`, existingDownloadColumns);
+
+  const watchHistoryColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(watch_history)');
+  const existingWatchHistoryColumns = new Set(watchHistoryColumns.map((column) => column.name));
+  await ensureColumn(db, 'watch_history', 'sourceIndex', 'INTEGER', existingWatchHistoryColumns);
 
   await db.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_downloads_runnable ON downloads(requestedState, state, leaseUntil, createdAt);
@@ -542,6 +541,7 @@ export async function getWatchHistory(db: SQLiteDatabase) {
     vodPic: string;
     episodeName: string;
     sourceName: string;
+    sourceIndex: number | null;
     episodeUrl: string;
     playableUrl: string;
     positionMillis: number;
@@ -552,10 +552,10 @@ export async function getWatchHistory(db: SQLiteDatabase) {
 }
 
 export async function upsertWatchHistory(db: SQLiteDatabase, input: WatchHistoryInput) {
-  const id = watchHistoryId({ siteUrl: input.siteUrl, vodId: input.vodId, episodeUrl: input.episodeUrl, episodeName: input.episodeName });
+  const id = stableWatchHistoryId(input);
   await db.runAsync(
-    `INSERT INTO watch_history (id, siteUrl, detailUrl, vodId, vodName, vodPic, episodeName, sourceName, episodeUrl, playableUrl, positionMillis, durationMillis)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO watch_history (id, siteUrl, detailUrl, vodId, vodName, vodPic, episodeName, sourceName, sourceIndex, episodeUrl, playableUrl, positionMillis, durationMillis)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        siteUrl = excluded.siteUrl,
        detailUrl = excluded.detailUrl,
@@ -564,6 +564,7 @@ export async function upsertWatchHistory(db: SQLiteDatabase, input: WatchHistory
        vodPic = excluded.vodPic,
        episodeName = excluded.episodeName,
        sourceName = excluded.sourceName,
+       sourceIndex = excluded.sourceIndex,
        episodeUrl = excluded.episodeUrl,
        playableUrl = excluded.playableUrl,
        positionMillis = excluded.positionMillis,
@@ -578,10 +579,30 @@ export async function upsertWatchHistory(db: SQLiteDatabase, input: WatchHistory
       input.vodPic,
       input.episodeName,
       input.sourceName,
+      input.sourceIndex ?? null,
       input.episodeUrl,
       input.playableUrl,
       input.positionMillis ?? 0,
       input.durationMillis ?? 0,
+    ]
+  );
+  return id;
+}
+
+export async function updateWatchHistoryProgress(
+  db: SQLiteDatabase,
+  id: string,
+  positionMillis: number,
+  durationMillis: number
+) {
+  await db.runAsync(
+    `UPDATE watch_history
+     SET positionMillis = ?, durationMillis = ?, updatedAt = strftime('%s','now')
+     WHERE id = ?`,
+    [
+      Math.max(0, Math.floor(positionMillis)),
+      Math.max(0, Math.floor(durationMillis)),
+      id,
     ]
   );
 }

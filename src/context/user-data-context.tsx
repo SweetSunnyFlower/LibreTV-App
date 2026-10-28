@@ -12,6 +12,7 @@ import {
   upsertFavorite,
   upsertSearchHistory,
   upsertWatchHistory,
+  updateWatchHistoryProgress as dbUpdateWatchHistoryProgress,
 } from '@/services/database';
 import type { FavoriteInput, FavoriteRecord, SearchHistoryRecord, WatchHistoryInput, WatchHistoryRecord } from '@/models/user-data';
 
@@ -24,7 +25,8 @@ interface UserDataContextValue {
   isFavorite: (siteUrl: string, vodId: number) => boolean;
   toggleFavorite: (input: FavoriteInput) => Promise<void>;
   addSearchHistory: (keyword: string, siteUrl: string, siteName: string, resultCount: number) => Promise<void>;
-  addWatchHistory: (input: WatchHistoryInput) => Promise<void>;
+  addWatchHistory: (input: WatchHistoryInput) => Promise<string>;
+  updateWatchHistoryProgress: (id: string, positionMillis: number, durationMillis: number) => Promise<void>;
   deleteSearchHistory: (id: string) => Promise<void>;
   deleteWatchHistory: (id: string) => Promise<void>;
   clearSearchHistory: () => Promise<void>;
@@ -40,7 +42,8 @@ const UserDataContext = createContext<UserDataContextValue>({
   isFavorite: () => false,
   toggleFavorite: async () => {},
   addSearchHistory: async () => {},
-  addWatchHistory: async () => {},
+  addWatchHistory: async () => '',
+  updateWatchHistoryProgress: async () => {},
   deleteSearchHistory: async () => {},
   deleteWatchHistory: async () => {},
   clearSearchHistory: async () => {},
@@ -99,9 +102,27 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
   }, [db, refreshUserData]);
 
   const addWatchHistory = useCallback(async (input: WatchHistoryInput) => {
-    await upsertWatchHistory(db, input);
+    const id = await upsertWatchHistory(db, input);
     await refreshUserData();
+    return id;
   }, [db, refreshUserData]);
+
+  const updateWatchHistoryProgress = useCallback(async (
+    id: string,
+    positionMillis: number,
+    durationMillis: number
+  ) => {
+    await dbUpdateWatchHistoryProgress(db, id, positionMillis, durationMillis);
+    setWatchHistory((current) => current.map((item) => (
+      item.id === id
+        ? {
+            ...item,
+            positionMillis: Math.max(0, Math.floor(positionMillis)),
+            durationMillis: Math.max(0, Math.floor(durationMillis)),
+          }
+        : item
+    )));
+  }, [db]);
 
   const deleteSearchHistory = useCallback(async (id: string) => {
     await dbDeleteSearchHistory(db, id);
@@ -135,6 +156,7 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
         toggleFavorite,
         addSearchHistory,
         addWatchHistory,
+        updateWatchHistoryProgress,
         deleteSearchHistory,
         deleteWatchHistory,
         clearSearchHistory,
