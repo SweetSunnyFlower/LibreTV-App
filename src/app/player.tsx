@@ -297,6 +297,7 @@ export default function PlayerScreen() {
         detailUrl: context.detailUrl,
         sourceName: context.sourceName,
         title: context.title,
+        signal,
       });
     },
     adapter: {
