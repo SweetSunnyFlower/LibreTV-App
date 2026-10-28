@@ -71,7 +71,7 @@ export function SkeletonBlock({ style }: SkeletonBlockProps) {
   return (
     <View
       onLayout={handleLayout}
-      style={[styles.block, { backgroundColor: colors.backgroundElement }, style]}>
+      style={[styles.block, { backgroundColor: colors.backgroundElement }, style, styles.square]}>
       {progress ? (
         <Animated.View
           pointerEvents="none"
@@ -91,6 +91,9 @@ export function SkeletonBlock({ style }: SkeletonBlockProps) {
 const styles = StyleSheet.create({
   block: {
     overflow: 'hidden',
+  },
+  square: {
+    borderRadius: 0,
   },
   shimmerBand: {
     position: 'absolute',
