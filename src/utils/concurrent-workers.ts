@@ -15,8 +15,13 @@ export async function runConcurrentWorkers(
     failed: () => Boolean(failure),
   };
 
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     Array.from({ length: Math.max(0, concurrency) }, () => worker(control))
   );
+  for (const result of results) {
+    if (result.status === 'rejected' && !failure) {
+      failure = result.reason;
+    }
+  }
   if (failure) throw failure;
 }

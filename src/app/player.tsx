@@ -310,15 +310,20 @@ export default function PlayerScreen() {
     },
     loadProgress: async (url) => {
       if (!recordProgressEnabledRef.current) return null;
-      const progressValue = await getAppSetting(db, playbackProgressSettingKey(url));
-      const positionSeconds = progressValue ? Number(progressValue) : NaN;
-      return Number.isFinite(positionSeconds)
-        ? { positionSeconds, durationSeconds: 0 }
-        : null;
+      try {
+        const progressValue = await getAppSetting(db, playbackProgressSettingKey(url));
+        const positionSeconds = progressValue ? Number(progressValue) : NaN;
+        return Number.isFinite(positionSeconds)
+          ? { positionSeconds, durationSeconds: 0 }
+          : null;
+      } catch (error) {
+        console.warn('[Player] Failed to load playback progress:', error);
+        return null;
+      }
     },
     saveProgress: async (url, positionSeconds, durationSeconds, watchHistoryId) => {
       if (!recordProgressEnabledRef.current) return;
-      await Promise.all([
+      const results = await Promise.allSettled([
         setAppSetting(db, playbackProgressSettingKey(url), String(Math.floor(positionSeconds))),
         watchHistoryId
           ? updateWatchHistoryProgress(
@@ -328,22 +333,31 @@ export default function PlayerScreen() {
             )
           : Promise.resolve(),
       ]);
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') {
+        console.warn('[Player] Failed to save playback progress:', failure.reason);
+      }
     },
     recordStarted: async (result) => {
       const context = playbackContextRef.current;
       const currentDetail = detailRef.current;
-      return addWatchHistory({
-        siteUrl: context.siteUrl ?? '',
-        detailUrl: context.detailUrl ?? '',
-        vodId: vodId ? Number(vodId) : null,
-        vodName: vodNameParam ?? currentDetail?.vod_name ?? fallbackTitle,
-        vodPic: currentDetail?.vod_pic ?? '',
-        episodeName: episodeName ?? '',
-        sourceName: context.sourceName ?? '',
-        sourceIndex: sourceIndex ? Number(sourceIndex) : null,
-        episodeUrl: context.rawUrl,
-        playableUrl: result.playableUrl,
-      });
+      try {
+        return await addWatchHistory({
+          siteUrl: context.siteUrl ?? '',
+          detailUrl: context.detailUrl ?? '',
+          vodId: vodId ? Number(vodId) : null,
+          vodName: vodNameParam ?? currentDetail?.vod_name ?? fallbackTitle,
+          vodPic: currentDetail?.vod_pic ?? '',
+          episodeName: episodeName ?? '',
+          sourceName: context.sourceName ?? '',
+          sourceIndex: sourceIndex ? Number(sourceIndex) : null,
+          episodeUrl: context.rawUrl,
+          playableUrl: result.playableUrl,
+        });
+      } catch (error) {
+        console.warn('[Player] Failed to record watch history:', error);
+        return null;
+      }
     },
   }), [addWatchHistory, db, episodeName, fallbackTitle, player, sourceIndex, updateWatchHistoryProgress, vodId, vodNameParam]);
 
@@ -352,7 +366,11 @@ export default function PlayerScreen() {
       clearTimeout(progressSaveTimerRef.current);
       progressSaveTimerRef.current = null;
     }
-    await coordinator.flush(currentTimeRef.current, durationRef.current);
+    try {
+      await coordinator.flush(currentTimeRef.current, durationRef.current);
+    } catch (error) {
+      console.warn('[Player] Failed to flush playback progress:', error);
+    }
   }, [coordinator]);
 
   useEffect(() => {
@@ -465,7 +483,9 @@ export default function PlayerScreen() {
 
     progressSaveTimerRef.current = setTimeout(() => {
       progressSaveTimerRef.current = null;
-      void coordinator.flush(currentTimeRef.current, durationRef.current);
+      void coordinator.flush(currentTimeRef.current, durationRef.current).catch((error) => {
+        console.warn('[Player] Failed to save playback progress:', error);
+      });
     }, 2000);
   }, [coordinator, currentTime, recordProgressEnabled]);
 

@@ -82,6 +82,9 @@ export class PlaybackCoordinator {
         this.dependencies.adapter.seek(savedProgress.positionSeconds);
       }
 
+      if (generation !== this.generation || controller.signal.aborted) {
+        return { status: 'cancelled' };
+      }
       const watchHistoryId = await this.dependencies.recordStarted(result);
       if (generation !== this.generation || controller.signal.aborted) {
         return { status: 'cancelled' };
