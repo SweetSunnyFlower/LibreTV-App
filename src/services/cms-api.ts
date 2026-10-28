@@ -1,18 +1,6 @@
 import { CMS_ENDPOINTS } from '@/constants/api';
 import type { CmsApiResponse, VodItem, VodDetail, VodClass, Episode } from '@/models/vod';
-
-const FETCH_TIMEOUT = 15000;
-
-async function fetchWithTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    return res;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+import { fetchJsonWithTimeout } from '@/services/http';
 
 function splitFirstDollar(segment: string) {
   const index = segment.indexOf('$');
@@ -44,39 +32,30 @@ function isM3u8Url(url: string) {
 
 export async function searchVod(
   siteUrl: string,
-  keyword: string
+  keyword: string,
+  signal?: AbortSignal
 ): Promise<CmsApiResponse<VodItem>> {
   const url = CMS_ENDPOINTS.search(siteUrl, keyword);
   try {
     console.log('[CMS API] Searching:', url);
-    const res = await fetchWithTimeout(url);
-    console.log('[CMS API] Search response status:', res.status);
-    if (!res.ok) {
-      console.warn('[CMS API] Search not ok:', res.status);
-      return { code: 0, msg: `HTTP ${res.status}`, page: '1', pagecount: 0, limit: '20', total: 0, list: [] };
-    }
-    const text = await res.text();
-    const data = JSON.parse(text);
+    const data = await fetchJsonWithTimeout<CmsApiResponse<VodItem>>(url, { signal });
     console.log('[CMS API] Search results:', data.list?.length ?? 0, 'items, total:', data.total);
     return data;
   } catch (err) {
     console.error('[CMS API] Search fetch error:', err);
-    return { code: 0, msg: String(err), page: '1', pagecount: 0, limit: '20', total: 0, list: [] };
+    throw new Error(`搜索失败：${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
-export async function fetchCategories(siteUrl: string): Promise<VodClass[]> {
+export async function fetchCategories(siteUrl: string, signal?: AbortSignal): Promise<VodClass[]> {
   const url = CMS_ENDPOINTS.categories(siteUrl);
   try {
     console.log('[CMS API] Fetching categories:', url);
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) return [];
-    const text = await res.text();
-    const data = JSON.parse(text);
+    const data = await fetchJsonWithTimeout<{ class?: VodClass[] }>(url, { signal });
     return data.class ?? [];
   } catch (err) {
     console.error('[CMS API] Categories fetch error:', err);
-    return [];
+    throw new Error(`分类加载失败：${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -84,39 +63,32 @@ export async function fetchVodByCategory(
   siteUrl: string,
   typeId: number,
   page = 1,
-  year?: string
+  year?: string,
+  signal?: AbortSignal
 ): Promise<CmsApiResponse<VodItem>> {
   const url = CMS_ENDPOINTS.categoryList(siteUrl, typeId, page, year);
   try {
     console.log('[CMS API] Fetching category:', url);
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) {
-      return { code: 0, msg: `HTTP ${res.status}`, page: String(page), pagecount: 0, limit: '20', total: 0, list: [] };
-    }
-    const text = await res.text();
-    const data = JSON.parse(text);
-    return data;
+    return await fetchJsonWithTimeout<CmsApiResponse<VodItem>>(url, { signal });
   } catch (err) {
     console.error('[CMS API] Category fetch error:', err);
-    return { code: 0, msg: String(err), page: String(page), pagecount: 0, limit: '20', total: 0, list: [] };
+    throw new Error(`分类内容加载失败：${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
 export async function fetchVodDetail(
   siteUrl: string,
-  id: number
+  id: number,
+  signal?: AbortSignal
 ): Promise<VodDetail | null> {
   const url = CMS_ENDPOINTS.detail(siteUrl, id);
   try {
     console.log('[CMS API] Fetching detail:', url);
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) return null;
-    const text = await res.text();
-    const data: CmsApiResponse<VodDetail> = JSON.parse(text);
+    const data = await fetchJsonWithTimeout<CmsApiResponse<VodDetail>>(url, { signal });
     return data.list?.[0] ?? null;
   } catch (err) {
     console.error('[CMS API] Detail fetch error:', err);
-    return null;
+    throw new Error(`详情加载失败：${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
