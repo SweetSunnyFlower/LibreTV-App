@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie Night",
     "slug": "movie",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "movie",
@@ -30,7 +30,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
+      "versionCode": 3,
       "package": "com.vexai.movie"
     },
     "web": {
@@ -60,7 +60,15 @@
         }
       ],
       "expo-background-task",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

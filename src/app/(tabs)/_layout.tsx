@@ -19,7 +19,7 @@ const BAR_HORIZONTAL_PADDING = 16;
 const ITEM_INNER_WIDTH = 52;
 const UNDERLINE_WIDTH = 18;
 
-function MinimalTabBar({ state, descriptors, navigation }: any) {
+function MinimalTabBar({ state, descriptors, emitter, navigateToTab }: any) {
   const themeName = useThemeName();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -68,19 +68,19 @@ function MinimalTabBar({ state, descriptors, navigation }: any) {
           const color = isFocused ? palette.text : palette.secondaryText;
 
           const onPress = () => {
-            const event = navigation.emit({
+            const event = emitter.emit({
               type: 'tabPress',
               target: route.key,
               canPreventDefault: true,
             });
 
             if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name, route.params);
+              navigateToTab(route.key);
             }
           };
 
           const onLongPress = () => {
-            navigation.emit({
+            emitter.emit({
               type: 'tabLongPress',
               target: route.key,
             });
