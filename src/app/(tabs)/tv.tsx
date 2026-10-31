@@ -17,7 +17,6 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -264,30 +263,30 @@ export default function TvScreen() {
 
       {tab === 'mine' ? (
         <View style={styles.mineLayout}>
-          <ScrollView
-            style={[styles.sourceSidebar, { backgroundColor: palette.segmentBackground }]}
-            showsVerticalScrollIndicator={false}>
-            {sources.map((source) => {
-              const isActive = source.id === selectedSourceId;
-              return (
-                <Pressable
-                  key={source.id}
-                  style={[
-                    styles.sourceSideItem,
-                    { borderBottomColor: palette.border },
-                    isActive && { backgroundColor: palette.background },
-                  ]}
-                  onPress={() => selectSource(source)}>
-                  {isActive ? <View style={[styles.sourceSideAccent, { backgroundColor: palette.accent }]} /> : null}
-                  <Text
-                    style={[styles.sourceSideText, { color: isActive ? palette.accent : palette.text }]}
-                    numberOfLines={2}>
-                    {source.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          <View style={[styles.sourceSidebar, { backgroundColor: palette.segmentBackground }]}>
+            <View style={styles.sourceSidebarScroll}>
+              {sources.map((source) => {
+                const isActive = source.id === selectedSourceId;
+                return (
+                  <Pressable
+                    key={source.id}
+                    style={[
+                      styles.sourceSideItem,
+                      { borderBottomColor: palette.border },
+                      isActive && { backgroundColor: palette.background },
+                    ]}
+                    onPress={() => selectSource(source)}>
+                    {isActive ? <View style={[styles.sourceSideAccent, { backgroundColor: palette.accent }]} /> : null}
+                    <Text
+                      style={[styles.sourceSideText, { color: isActive ? palette.accent : palette.text }]}
+                      numberOfLines={2}>
+                      {source.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
 
           <View style={styles.channelPane}>
             <View style={[styles.searchWrap, { backgroundColor: palette.segmentBackground }]}>
@@ -534,8 +533,11 @@ const styles = StyleSheet.create({
   sourceSidebar: {
     width: 108,
   },
+  sourceSidebarScroll: {
+    flex: 1,
+  },
   sourceSideItem: {
-    minHeight: 58,
+    height: 58,
     paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
