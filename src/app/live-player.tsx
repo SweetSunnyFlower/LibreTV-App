@@ -5,8 +5,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { ChevronLeft } from 'lucide-react-native';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function firstParam(value?: string | string[]) {
@@ -35,6 +35,9 @@ export default function LivePlayerScreen() {
   const { status } = useEvent(player, 'statusChange', {
     status: player.status,
     error: undefined,
+  });
+  const { isPlaying } = useEvent(player, 'playingChange', {
+    isPlaying: player.playing,
   });
 
   useEffect(() => {
@@ -95,6 +98,8 @@ export default function LivePlayerScreen() {
     };
   }, [db, kind, params.channelId, params.name, params.url, player, retryNonce]);
 
+  const showLoading = loading || (!isPlaying && status !== 'error' && !errorMsg);
+
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
@@ -117,9 +122,10 @@ export default function LivePlayerScreen() {
         />
       ) : null}
 
-      {loading && !errorMsg ? (
+      {showLoading && !errorMsg ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
-          <ActivityIndicator size="small" color="#fff" />
+          <DotsLoading />
+          <Text style={styles.loadingText}>正在加载直播…</Text>
         </View>
       ) : null}
 
@@ -147,6 +153,62 @@ export default function LivePlayerScreen() {
   );
 }
 
+function DotsLoading() {
+  const dots = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
+
+  useEffect(() => {
+    const animations = dots.map((dot, index) => Animated.loop(
+      Animated.sequence([
+        Animated.delay(index * 140),
+        Animated.timing(dot, {
+          toValue: 1,
+          duration: 260,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(dot, {
+          toValue: 0,
+          duration: 260,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.delay((2 - index) * 140),
+      ])
+    ));
+    animations.forEach((animation) => animation.start());
+    return () => animations.forEach((animation) => animation.stop());
+  }, [dots]);
+
+  return (
+    <View style={styles.dots}>
+      {dots.map((dot, index) => (
+        <Animated.View
+          key={`live-dot-${index}`}
+          style={[
+            styles.dot,
+            {
+              opacity: dot.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.35, 1],
+              }),
+              transform: [{
+                translateY: dot.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, -6],
+                }),
+              }],
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -160,6 +222,25 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 14,
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  dots: {
+    height: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#fff',
   },
   errorOverlay: {
     position: 'absolute',
