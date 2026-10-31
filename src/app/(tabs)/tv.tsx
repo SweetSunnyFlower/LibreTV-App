@@ -99,7 +99,13 @@ export default function TvScreen() {
     return channels.filter((item) => item.name.toLowerCase().includes(keyword));
   }, [channels, query]);
 
-  const sections = useMemo(() => groupIptvChannels(filteredChannels), [filteredChannels]);
+  const sections = useMemo(
+    () => groupIptvChannels(filteredChannels).map((group) => ({
+      title: group.name,
+      data: group.channels,
+    })),
+    [filteredChannels]
+  );
 
   const goToSources = useCallback(() => {
     router.push('/live-sources');
@@ -206,7 +212,7 @@ export default function TvScreen() {
           keyExtractor={(item) => item.url}
           renderItem={renderChannel}
           renderSectionHeader={({ section }) => (
-            <Text style={[styles.sectionHeader, { color: palette.secondaryText }]}>{section.name}</Text>
+            <Text style={[styles.sectionHeader, { color: palette.secondaryText }]}>{section.title}</Text>
           )}
           stickySectionHeadersEnabled={false}
           showsVerticalScrollIndicator={false}

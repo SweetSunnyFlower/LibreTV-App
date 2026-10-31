@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { PREDEFINED_IPTV_SOURCES } from '@/constants/iptv';
 import { PREDEFINED_SITES } from '@/constants/sites';
 import type { DownloadRecord, DownloadRequestedState, DownloadState, DownloadType } from '@/models/download';
 import type { FavoriteInput, WatchHistoryInput } from '@/models/user-data';
@@ -205,6 +206,17 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       await db.runAsync(
         'INSERT INTO sites (url, name, detail, isDefault, isActive) VALUES (?, ?, ?, ?, ?)',
         [site.url, site.name, site.detail, site.isDefault ? 1 : 0, i === 0 ? 1 : 0]
+      );
+    }
+  }
+
+  // Seed predefined IPTV sources if table is empty
+  const iptvCount = await db.getFirstAsync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM iptv_sources');
+  if (iptvCount?.cnt === 0) {
+    for (const source of PREDEFINED_IPTV_SOURCES) {
+      await db.runAsync(
+        'INSERT INTO iptv_sources (url, name, isActive) VALUES (?, ?, 0)',
+        [source.url, source.name]
       );
     }
   }
