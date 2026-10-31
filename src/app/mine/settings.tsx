@@ -250,13 +250,6 @@ export default function SettingsScreen() {
               palette={palette}
             />
             <ActionSettingItem
-              title="版本更新"
-              subtitle={checkingUpdate ? '正在检查最新版本...' : `当前版本：${getCurrentAppVersion()}`}
-              disabled={checkingUpdate}
-              onPress={checkVersionUpdate}
-              palette={palette}
-            />
-            <ActionSettingItem
               title="站点管理"
               subtitle="管理 CMS 资源站"
               onPress={() => router.push('/sites')}
@@ -266,6 +259,13 @@ export default function SettingsScreen() {
               title="直播源管理"
               subtitle="添加和管理电视直播 M3U 源"
               onPress={() => router.push('/live-sources')}
+              palette={palette}
+            />
+            <ActionSettingItem
+              title="版本更新"
+              subtitle={checkingUpdate ? '正在检查最新版本...' : `当前版本：${getCurrentAppVersion()}`}
+              disabled={checkingUpdate}
+              onPress={checkVersionUpdate}
               palette={palette}
             />
           </>
