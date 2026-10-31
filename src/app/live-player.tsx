@@ -44,6 +44,7 @@ export default function LivePlayerScreen() {
   const [currentUrl, setCurrentUrl] = useState(firstParam(params.url) ?? '');
   const [currentSource, setCurrentSource] = useState<VideoSource | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerChannels, setDrawerChannels] = useState<IptvChannel[]>([]);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -157,6 +158,7 @@ export default function LivePlayerScreen() {
         if (!cancelled) {
           player.play();
           setLoading(false);
+          setPlaybackFailed(false);
         }
       } catch (error) {
         if (!cancelled) {
@@ -175,11 +177,16 @@ export default function LivePlayerScreen() {
   const showLoading = loading || (!isPlaying && status !== 'error' && !errorMsg);
 
   useEffect(() => {
-    if (status !== 'error' || !currentSource || errorMsg) return;
+    if (status !== 'error' || !currentSource || errorMsg) {
+      if (status !== 'error') setPlaybackFailed(false);
+      return;
+    }
     if (retryCountRef.current >= 3) {
+      setPlaybackFailed(true);
       setReconnecting(false);
       return;
     }
+    setPlaybackFailed(false);
     setReconnecting(true);
     retryCountRef.current += 1;
     const timer = setTimeout(async () => {
@@ -217,6 +224,20 @@ export default function LivePlayerScreen() {
       setErrorMsg(error instanceof Error ? error.message : '切换失败');
     }
   }, [addLiveWatchHistory, params.sourceId, params.sourceName, player]);
+
+  const retryPlayback = useCallback(async () => {
+    if (!currentSource) return;
+    retryCountRef.current = 0;
+    setPlaybackFailed(false);
+    setReconnecting(true);
+    try {
+      await player.replaceAsync(currentSource);
+      player.play();
+    } catch (error) {
+      console.warn('[LivePlayer] Manual retry failed:', error);
+    }
+    setReconnecting(false);
+  }, [currentSource, player]);
 
   const showControls = useCallback(() => {
     setControlsVisible(true);
@@ -267,6 +288,15 @@ export default function LivePlayerScreen() {
         <View style={styles.loadingOverlay} pointerEvents="none">
           <DotsLoading />
           <Text style={styles.loadingText}>正在重连…</Text>
+        </View>
+      ) : null}
+
+      {playbackFailed && !errorMsg ? (
+        <View style={styles.errorOverlay}>
+          <Text style={styles.errorText}>播放失败，请重试</Text>
+          <Pressable style={styles.retryButton} onPress={retryPlayback}>
+            <Text style={styles.retryText}>重试</Text>
+          </Pressable>
         </View>
       ) : null}
 
