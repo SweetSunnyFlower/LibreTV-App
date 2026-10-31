@@ -18,6 +18,24 @@ export async function probeIptvSource(url: string) {
   return channels.length;
 }
 
+export async function probeStreamUrl(url: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: { Range: 'bytes=0-0' },
+    });
+    return response.ok || response.status === 200 || response.status === 206;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
+
 export async function getCachedIptvChannels(db: SQLiteDatabase, sourceId: number): Promise<IptvChannel[] | null> {
   const rows = await db.getAllAsync<{
     name: string;

@@ -3,7 +3,7 @@ import { FilterDrawer, type IptvLibraryFilters } from '@/components/iptv/filter-
 import { useIptv } from '@/context/iptv-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { IptvChannel, IptvLibraryChannel, IptvSource } from '@/models/iptv';
-import { cacheIptvChannels, fetchIptvChannels, getCachedIptvChannels } from '@/services/iptv';
+import { cacheIptvChannels, fetchIptvChannels, getCachedIptvChannels, probeStreamUrl } from '@/services/iptv';
 import {
   getIptvLibraryChannels,
   getIptvLibraryFilterOptions,
@@ -41,6 +41,7 @@ const TAB_ITEMS: Array<{ key: TvTab; label: string }> = [
 ];
 const TAB_UNDERLINE_WIDTH = 16;
 const SOURCE_INDICATOR_HEIGHT = 16;
+const CHANNEL_VIEWABILITY = { itemVisiblePercentThreshold: 50 };
 
 function countryFlag(code: string) {
   if (!code) return '';
@@ -60,8 +61,10 @@ export default function TvScreen() {
   const [tab, setTab] = useState<TvTab>('mine');
   const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
   const [sourceStates, setSourceStates] = useState<Record<number, SourceChannelState>>({});
+  const [channelStatus, setChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
   const [query, setQuery] = useState('');
   const didInitRef = useRef(false);
+  const probedChannelsRef = useRef<Set<string>>(new Set());
 
   const [librarySyncing, setLibrarySyncing] = useState(false);
   const [libraryError, setLibraryError] = useState('');
@@ -288,6 +291,21 @@ export default function TvScreen() {
     />
   ), [openLibraryChannel, palette]);
 
+  const handleChannelViewable = useCallback(({ viewableItems }: { viewableItems: Array<{ item: IptvChannel }> }) => {
+    for (const { item } of viewableItems) {
+      if (probedChannelsRef.current.has(item.url)) continue;
+      probedChannelsRef.current.add(item.url);
+      setChannelStatus((prev) => ({ ...prev, [item.url]: 'checking' }));
+      probeStreamUrl(item.url)
+        .then((ok) => {
+          setChannelStatus((prev) => ({ ...prev, [item.url]: ok ? 'available' : 'unavailable' }));
+        })
+        .catch(() => {
+          setChannelStatus((prev) => ({ ...prev, [item.url]: 'unavailable' }));
+        });
+    }
+  }, []);
+
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -423,11 +441,14 @@ export default function TvScreen() {
               <FlatList
                 data={selectedChannels}
                 keyExtractor={(item) => item.url}
+                viewabilityConfig={CHANNEL_VIEWABILITY}
+                onViewableItemsChanged={handleChannelViewable}
                 renderItem={({ item }) => (
                   <ChannelRow
                     avatar={item.name.trim().slice(0, 1) || '台'}
                     title={item.name}
                     subtitle={item.group}
+                    status={channelStatus[item.url]}
                     onPress={() => openM3uChannel(item)}
                     palette={palette}
                   />
@@ -479,15 +500,23 @@ function ChannelRow({
   avatar,
   title,
   subtitle,
+  status,
   onPress,
   palette,
 }: {
   avatar: string;
   title: string;
   subtitle?: string;
+  status?: 'checking' | 'available' | 'unavailable';
   onPress: () => void;
   palette: typeof lightPalette;
 }) {
+  const statusColor = status === 'available'
+    ? palette.success
+    : status === 'unavailable'
+      ? palette.danger
+      : palette.secondaryText;
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -503,6 +532,7 @@ function ChannelRow({
         <Text style={[styles.channelName, { color: palette.text }]} numberOfLines={1}>{title}</Text>
         {subtitle ? <Text style={[styles.channelMeta, { color: palette.secondaryText }]} numberOfLines={1}>{subtitle}</Text> : null}
       </View>
+      {status ? <View style={[styles.statusDot, { backgroundColor: statusColor }]} /> : null}
       <ChevronRight size={17} color={palette.secondaryText} strokeWidth={1.8} />
     </Pressable>
   );
@@ -540,6 +570,8 @@ const lightPalette = {
   border: '#E8E8E6',
   segmentBackground: '#F2F2F0',
   accent: '#2563EB',
+  success: '#2E7D32',
+  danger: '#C62828',
 };
 
 const darkPalette = {
@@ -550,6 +582,8 @@ const darkPalette = {
   border: '#2A2A2A',
   segmentBackground: '#1D1D1D',
   accent: '#60A5FA',
+  success: '#81C784',
+  danger: '#E57373',
 };
 
 const styles = StyleSheet.create({
@@ -708,6 +742,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '500',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   listState: {
     flex: 1,
