@@ -33,13 +33,19 @@ export async function probeStreamUrl(url: string, externalSignal?: AbortSignal) 
     return response;
   };
 
+  const isUsableResponse = (response: Response) => {
+    if (!response.ok) return false;
+    const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+    return !contentType.includes('text/html');
+  };
+
   try {
     const rangeResponse = await request(true);
-    if (rangeResponse.ok) return true;
+    if (isUsableResponse(rangeResponse)) return true;
 
     if ([400, 403, 405, 416].includes(rangeResponse.status)) {
       const plainResponse = await request(false);
-      return plainResponse.ok;
+      return isUsableResponse(plainResponse);
     }
 
     return false;
