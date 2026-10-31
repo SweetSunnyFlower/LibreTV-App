@@ -1,0 +1,261 @@
+import type { SQLiteDatabase } from 'expo-sqlite';
+import type {
+  IptvLibraryChannel,
+  IptvLibraryFilter,
+  IptvLibraryStream,
+} from '@/models/iptv';
+import { fetchJsonWithTimeout } from '@/services/http';
+
+const API_BASE = 'https://iptv-org.github.io/api/';
+
+type RawChannel = {
+  id: string;
+  name?: string;
+  alt_names?: string[];
+  country?: string;
+  categories?: string[];
+  is_nsfw?: boolean;
+};
+
+type RawFeed = {
+  channel: string;
+  languages?: string[];
+};
+
+type RawStream = {
+  channel?: string | null;
+  feed?: string | null;
+  title?: string;
+  url: string;
+  referrer?: string | null;
+  user_agent?: string | null;
+  quality?: string | null;
+  labels?: string[];
+};
+
+type RawCountry = {
+  name: string;
+  code: string;
+  flag?: string;
+};
+
+type RawLanguage = {
+  name: string;
+  code: string;
+};
+
+type RawCategory = {
+  id: string;
+  name: string;
+};
+
+type ChannelRow = {
+  id: string;
+  name: string;
+  country: string;
+  languages: string;
+  categories: string;
+  isNsfw: number;
+  altNames: string;
+};
+
+type StreamRow = {
+  channel: string;
+  feed: string;
+  title: string;
+  url: string;
+  referrer: string;
+  userAgent: string;
+  quality: string;
+  labels: string;
+};
+
+function parseChannel(row: ChannelRow): IptvLibraryChannel {
+  return {
+    id: row.id,
+    name: row.name,
+    country: row.country,
+    languages: safeParseArray(row.languages),
+    categories: safeParseArray(row.categories),
+    isNsfw: row.isNsfw === 1,
+    altNames: safeParseArray(row.altNames),
+  };
+}
+
+function parseStream(row: StreamRow): IptvLibraryStream {
+  return {
+    channel: row.channel,
+    feed: row.feed,
+    title: row.title,
+    url: row.url,
+    referrer: row.referrer || undefined,
+    userAgent: row.userAgent || undefined,
+    quality: row.quality || undefined,
+    labels: safeParseArray(row.labels),
+  };
+}
+
+function safeParseArray(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function qualityRank(quality?: string) {
+  const match = /(\d{3,4})/.exec(quality ?? '');
+  return match ? Number(match[1]) : 0;
+}
+
+export function pickBestStream(streams: IptvLibraryStream[]) {
+  const candidates = streams.filter((stream) => stream.url);
+  if (candidates.length === 0) return null;
+
+  return candidates
+    .map((stream) => ({
+      stream,
+      blocked: stream.labels.some((label) => /geo-blocked/i.test(label)),
+      rank: qualityRank(stream.quality),
+    }))
+    .sort((a, b) => {
+      if (b.rank !== a.rank) return b.rank - a.rank;
+      return Number(a.blocked) - Number(b.blocked);
+    })[0].stream;
+}
+
+export async function syncIptvLibrary(db: SQLiteDatabase) {
+  const [channels, streams, feeds, countries, languages, categories] = await Promise.all([
+    fetchJsonWithTimeout<RawChannel[]>(`${API_BASE}channels.json`, {}, 120000),
+    fetchJsonWithTimeout<RawStream[]>(`${API_BASE}streams.json`, {}, 120000),
+    fetchJsonWithTimeout<RawFeed[]>(`${API_BASE}feeds.json`, {}, 120000),
+    fetchJsonWithTimeout<RawCountry[]>(`${API_BASE}countries.json`, {}, 120000),
+    fetchJsonWithTimeout<RawLanguage[]>(`${API_BASE}languages.json`, {}, 120000),
+    fetchJsonWithTimeout<RawCategory[]>(`${API_BASE}categories.json`, {}, 120000),
+  ]);
+
+  const languagesByChannel = new Map<string, string[]>();
+  for (const feed of feeds) {
+    if (!feed.channel || !feed.languages?.length) continue;
+    const current = languagesByChannel.get(feed.channel) ?? [];
+    for (const language of feed.languages) {
+      if (!current.includes(language)) current.push(language);
+    }
+    languagesByChannel.set(feed.channel, current);
+  }
+
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      DELETE FROM iptv_library_streams;
+      DELETE FROM iptv_library_channels;
+    `);
+
+    const insertChannel = await db.prepareAsync(
+      'INSERT INTO iptv_library_channels (id, name, country, languages, categories, isNsfw, altNames) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    try {
+      for (const channel of channels) {
+        await insertChannel.executeAsync(
+          channel.id,
+          channel.name ?? channel.id,
+          channel.country ?? '',
+          JSON.stringify(languagesByChannel.get(channel.id) ?? []),
+          JSON.stringify(channel.categories ?? []),
+          channel.is_nsfw ? 1 : 0,
+          JSON.stringify(channel.alt_names ?? [])
+        );
+      }
+    } finally {
+      await insertChannel.finalizeAsync();
+    }
+
+    const insertStream = await db.prepareAsync(
+      'INSERT OR REPLACE INTO iptv_library_streams (channel, feed, title, url, referrer, userAgent, quality, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    try {
+      for (const stream of streams) {
+        await insertStream.executeAsync(
+          stream.channel ?? '',
+          stream.feed ?? '',
+          stream.title ?? '',
+          stream.url,
+          stream.referrer ?? '',
+          stream.user_agent ?? '',
+          stream.quality ?? '',
+          JSON.stringify(stream.labels ?? [])
+        );
+      }
+    } finally {
+      await insertStream.finalizeAsync();
+    }
+
+    await db.runAsync(
+      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
+      ['countries', JSON.stringify(countries.map((item) => ({ code: item.code, name: item.name, flag: item.flag ?? '' })))]
+    );
+    await db.runAsync(
+      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
+      ['languages', JSON.stringify(languages.map((item) => ({ code: item.code, name: item.name })))]
+    );
+    await db.runAsync(
+      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
+      ['categories', JSON.stringify(categories.map((item) => ({ id: item.id, name: item.name })))]
+    );
+    await db.runAsync(
+      'INSERT OR REPLACE INTO iptv_library_meta (id, syncedAt) VALUES (1, ?)',
+      [Math.floor(Date.now() / 1000)]
+    );
+  });
+}
+
+export async function getIptvLibrarySyncedAt(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ syncedAt: number }>('SELECT syncedAt FROM iptv_library_meta WHERE id = 1 LIMIT 1');
+  return row?.syncedAt ?? 0;
+}
+
+export async function getIptvLibraryFilterOptions(db: SQLiteDatabase, kind: string) {
+  const row = await db.getFirstAsync<{ itemsJson: string }>(
+    'SELECT itemsJson FROM iptv_library_filters WHERE kind = ? LIMIT 1',
+    [kind]
+  );
+  if (!row) return [];
+  try {
+    return JSON.parse(row.itemsJson) as Array<Record<string, string>>;
+  } catch {
+    return [];
+  }
+}
+
+export async function getIptvLibraryChannels(db: SQLiteDatabase, filter: IptvLibraryFilter) {
+  const clauses = ['isNsfw = 0'];
+  const params: string[] = [];
+
+  if (filter.country) {
+    clauses.push('country = ?');
+    params.push(filter.country);
+  }
+
+  const limit = filter.country ? '' : ' LIMIT 400';
+  const rows = await db.getAllAsync<ChannelRow>(
+    `SELECT * FROM iptv_library_channels WHERE ${clauses.join(' AND ')} ORDER BY name ASC${limit}`,
+    ...params
+  );
+
+  let channels = rows.map(parseChannel);
+  if (filter.language) {
+    channels = channels.filter((channel) => channel.languages.includes(filter.language!));
+  }
+  if (filter.category) {
+    channels = channels.filter((channel) => channel.categories.includes(filter.category!));
+  }
+  return channels;
+}
+
+export async function getIptvLibraryStreams(db: SQLiteDatabase, channelId: string) {
+  const rows = await db.getAllAsync<StreamRow>(
+    'SELECT * FROM iptv_library_streams WHERE channel = ?',
+    [channelId]
+  );
+  return rows.map(parseStream);
+}

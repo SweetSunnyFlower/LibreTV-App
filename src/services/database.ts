@@ -110,6 +110,34 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       isActive INTEGER NOT NULL DEFAULT 0,
       createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
+    CREATE TABLE IF NOT EXISTS iptv_library_meta (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      syncedAt INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS iptv_library_channels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      country TEXT NOT NULL DEFAULT '',
+      languages TEXT NOT NULL DEFAULT '[]',
+      categories TEXT NOT NULL DEFAULT '[]',
+      isNsfw INTEGER NOT NULL DEFAULT 0,
+      altNames TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE TABLE IF NOT EXISTS iptv_library_streams (
+      channel TEXT NOT NULL,
+      feed TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      url TEXT NOT NULL,
+      referrer TEXT NOT NULL DEFAULT '',
+      userAgent TEXT NOT NULL DEFAULT '',
+      quality TEXT NOT NULL DEFAULT '',
+      labels TEXT NOT NULL DEFAULT '[]',
+      PRIMARY KEY (channel, feed, url)
+    );
+    CREATE TABLE IF NOT EXISTS iptv_library_filters (
+      kind TEXT PRIMARY KEY,
+      itemsJson TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS downloads (
       id TEXT PRIMARY KEY,
       vodName TEXT NOT NULL,
@@ -173,6 +201,8 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_favorite_vods_updated ON favorite_vods(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_search_history_updated ON search_history(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_watch_history_updated ON watch_history(updatedAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_iptv_library_channels_country ON iptv_library_channels(country);
+    CREATE INDEX IF NOT EXISTS idx_iptv_library_streams_channel ON iptv_library_streams(channel);
   `);
 
   const downloadColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(downloads)');
