@@ -33,7 +33,7 @@ export async function fetchLatestAppVersion(): Promise<AppVersionUpdateInfo | nu
       size: data.size === undefined ? undefined : Number(data.size),
     };
   } catch (error) {
-    console.error('[AppVersion] Fetch latest version error:', error);
+    console.info('[AppVersion] Fetch latest version error:', error);
     return null;
   }
 }

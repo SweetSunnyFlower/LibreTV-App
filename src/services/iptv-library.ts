@@ -182,7 +182,10 @@ export async function syncIptvLibraryChannels(
   onProgress?.({ label: '正在同步频道', percent: 78 });
 
   await db.withTransactionAsync(async () => {
-    await db.execAsync('DELETE FROM iptv_library_channels');
+    await db.execAsync(`
+      DELETE FROM iptv_library_channels_fts;
+      DELETE FROM iptv_library_channels;
+    `);
 
     const insertChannel = await db.prepareAsync(
       'INSERT INTO iptv_library_channels (id, name, country, languages, categories, isNsfw, altNames) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -201,6 +204,21 @@ export async function syncIptvLibraryChannels(
       }
     } finally {
       await insertChannel.finalizeAsync();
+    }
+
+    const insertFts = await db.prepareAsync(
+      'INSERT INTO iptv_library_channels_fts (id, name, altNames) VALUES (?, ?, ?)'
+    );
+    try {
+      for (const channel of channels) {
+        await insertFts.executeAsync(
+          channel.id,
+          channel.name ?? channel.id,
+          (channel.alt_names ?? []).join(' ')
+        );
+      }
+    } finally {
+      await insertFts.finalizeAsync();
     }
 
     await db.runAsync(
@@ -309,7 +327,12 @@ export async function getIptvLibraryFilterOptions(db: SQLiteDatabase, kind: stri
   }
 }
 
-export async function getIptvLibraryChannels(db: SQLiteDatabase, filter: IptvLibraryFilter) {
+export async function getIptvLibraryChannels(
+  db: SQLiteDatabase,
+  filter: IptvLibraryFilter,
+  page = 0,
+  pageSize = 200
+) {
   const clauses: string[] = [];
   const params: string[] = [];
 
@@ -326,11 +349,54 @@ export async function getIptvLibraryChannels(db: SQLiteDatabase, filter: IptvLib
     params.push(filter.country);
   }
 
-  const limit = filter.country ? '' : ' LIMIT 400';
   const rows = await db.getAllAsync<ChannelRow>(
-    `SELECT * FROM iptv_library_channels WHERE ${clauses.join(' AND ')} ORDER BY name ASC${limit}`,
-    ...params
+    `SELECT * FROM iptv_library_channels WHERE ${clauses.join(' AND ')} ORDER BY name ASC LIMIT ? OFFSET ?`,
+    ...params,
+    pageSize,
+    page * pageSize
   );
+
+  let channels = rows.map(parseChannel);
+  if (filter.language) {
+    channels = channels.filter((channel) => channel.languages.includes(filter.language!));
+  }
+  if (filter.category) {
+    channels = channels.filter((channel) => channel.categories.includes(filter.category!));
+  }
+  return channels;
+}
+
+function ftsQuery(query: string) {
+  const normalized = query.trim().replace(/"/g, '""');
+  return `"${normalized}"*`;
+}
+
+export async function searchIptvLibraryChannels(
+  db: SQLiteDatabase,
+  query: string,
+  filter: IptvLibraryFilter,
+  page = 0,
+  pageSize = 200
+) {
+  const clauses = ['iptv_library_channels_fts MATCH ?'];
+  const params: Array<string | number> = [ftsQuery(query)];
+
+  if (!filter.includeNsfw) {
+    clauses.push('c.isNsfw = 0');
+  }
+  if (filter.country) {
+    clauses.push('c.country = ?');
+    params.push(filter.country);
+  }
+
+  const rows = await db.getAllAsync<ChannelRow>(`
+    SELECT c.*
+    FROM iptv_library_channels c
+    INNER JOIN iptv_library_channels_fts f ON f.id = c.id
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY c.name ASC
+    LIMIT ? OFFSET ?
+  `, ...params, pageSize, page * pageSize);
 
   let channels = rows.map(parseChannel);
   if (filter.language) {
@@ -348,4 +414,79 @@ export async function getIptvLibraryStreams(db: SQLiteDatabase, channelId: strin
     [channelId]
   );
   return rows.map(parseStream);
+}
+
+export async function getIptvLibraryChannelIdsByCountry(db: SQLiteDatabase, country: string) {
+  const rows = await db.getAllAsync<{ id: string }>(
+    'SELECT id FROM iptv_library_channels WHERE country = ?',
+    [country]
+  );
+  return rows.map((row) => row.id);
+}
+
+export type IptvEpgProgramme = {
+  channel: string;
+  start: number;
+  stop: number;
+  title: string;
+  description: string;
+  category: string;
+};
+
+export async function saveIptvEpgProgrammes(db: SQLiteDatabase, programmes: IptvEpgProgramme[]) {
+  if (programmes.length === 0) return;
+
+  await db.withTransactionAsync(async () => {
+    const statement = await db.prepareAsync(
+      'INSERT OR REPLACE INTO iptv_epg_programmes (channel, start, stop, title, description, category) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    try {
+      for (const programme of programmes) {
+        await statement.executeAsync(
+          programme.channel,
+          programme.start,
+          programme.stop,
+          programme.title,
+          programme.description,
+          programme.category
+        );
+      }
+    } finally {
+      await statement.finalizeAsync();
+    }
+  });
+}
+
+export async function getNowPlayingEpg(db: SQLiteDatabase, country: string, now = Date.now() / 1000) {
+  return db.getAllAsync<IptvEpgProgramme>(`
+    SELECT p.channel, p.start, p.stop, p.title, p.description, p.category
+    FROM iptv_epg_programmes p
+    INNER JOIN iptv_library_channels c ON c.id = p.channel
+    WHERE c.country = ? AND p.start <= ? AND p.stop > ?
+    ORDER BY p.channel ASC
+  `, [country, Math.floor(now), Math.floor(now)]);
+}
+
+export async function getEpgRange(db: SQLiteDatabase, country: string, from: number, to: number) {
+  return db.getAllAsync<IptvEpgProgramme>(`
+    SELECT p.channel, p.start, p.stop, p.title, p.description, p.category
+    FROM iptv_epg_programmes p
+    INNER JOIN iptv_library_channels c ON c.id = p.channel
+    WHERE c.country = ? AND p.stop > ? AND p.start < ?
+    ORDER BY p.channel ASC, p.start ASC
+  `, [country, Math.floor(from), Math.floor(to)]);
+}
+
+export type IptvEpgGuideRow = IptvEpgProgramme & {
+  channelName: string;
+};
+
+export async function getEpgGuide(db: SQLiteDatabase, country: string, from: number, to: number) {
+  return db.getAllAsync<IptvEpgGuideRow>(`
+    SELECT p.channel, p.start, p.stop, p.title, p.description, p.category, c.name AS channelName
+    FROM iptv_epg_programmes p
+    INNER JOIN iptv_library_channels c ON c.id = p.channel
+    WHERE c.country = ? AND p.stop > ? AND p.start < ?
+    ORDER BY c.name ASC, p.start ASC
+  `, [country, Math.floor(from), Math.floor(to)]);
 }

@@ -3,7 +3,7 @@ import { useDownloads } from '@/context/download-context';
 import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
 import { useRouter } from 'expo-router';
-import { ChevronRight, Clock, Download, Heart, Search, Settings, type LucideIcon } from 'lucide-react-native';
+import { BarChart3, ChevronRight, Clock, Download, Heart, Search, Settings, type LucideIcon } from 'lucide-react-native';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -62,6 +62,14 @@ export default function MyScreen() {
               count={watchHistory.length + liveWatchHistory.length}
               icon={Clock}
               onPress={() => router.push('/mine/watch-history')}
+              palette={palette}
+            />
+            <MenuItem
+              title="播放统计"
+              subtitle="最常看的频道和最近观看时间轴"
+              count={watchHistory.length + liveWatchHistory.length}
+              icon={BarChart3}
+              onPress={() => router.push('/mine/playback-stats')}
               palette={palette}
             />
             <MenuItem

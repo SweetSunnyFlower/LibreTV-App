@@ -132,6 +132,11 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       isNsfw INTEGER NOT NULL DEFAULT 0,
       altNames TEXT NOT NULL DEFAULT '[]'
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS iptv_library_channels_fts USING fts5(
+      id UNINDEXED,
+      name,
+      altNames
+    );
     CREATE TABLE IF NOT EXISTS iptv_library_streams (
       channel TEXT NOT NULL,
       feed TEXT NOT NULL DEFAULT '',
@@ -155,6 +160,15 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       groupTitle TEXT NOT NULL DEFAULT '',
       updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now')),
       PRIMARY KEY (sourceId, url)
+    );
+    CREATE TABLE IF NOT EXISTS iptv_epg_programmes (
+      channel TEXT NOT NULL,
+      start INTEGER NOT NULL,
+      stop INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (channel, start)
     );
     CREATE TABLE IF NOT EXISTS downloads (
       id TEXT PRIMARY KEY,
@@ -244,6 +258,8 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_iptv_library_channels_country ON iptv_library_channels(country);
     CREATE INDEX IF NOT EXISTS idx_iptv_library_streams_channel ON iptv_library_streams(channel);
     CREATE INDEX IF NOT EXISTS idx_iptv_source_channel_cache_source ON iptv_source_channel_cache(sourceId);
+    CREATE INDEX IF NOT EXISTS idx_iptv_epg_programmes_channel ON iptv_epg_programmes(channel);
+    CREATE INDEX IF NOT EXISTS idx_iptv_epg_programmes_time ON iptv_epg_programmes(start, stop);
   `);
 
   const downloadColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(downloads)');

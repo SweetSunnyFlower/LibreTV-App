@@ -7,12 +7,15 @@ import type { IptvChannel, IptvLibraryChannel, IptvSource } from '@/models/iptv'
 import type { LiveWatchHistoryRecord } from '@/models/user-data';
 import { cacheIptvChannels, fetchIptvChannels, getCachedIptvChannels, probeStreamUrl } from '@/services/iptv';
 import { getIptvSourceStats } from '@/services/database';
+import { getNowPlayingEpg } from '@/services/iptv-library';
+import { syncEpgForCountry } from '@/services/epg';
 import { FlashList } from '@shopify/flash-list';
 import {
   getIptvLibraryChannels,
   getIptvLibraryFilterOptions,
   getIptvLibraryStreams,
   getIptvLibrarySyncedAt,
+  searchIptvLibraryChannels,
   pickBestStream,
   syncIptvLibraryChannels,
   syncIptvLibraryStreams,
@@ -83,6 +86,7 @@ export default function TvScreen() {
   const [sourceStats, setSourceStats] = useState<Record<number, { channelCount: number; updatedAt: number }>>({});
   const [channelStatus, setChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
   const [libraryChannelStatus, setLibraryChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
+  const [nowPlayingByChannel, setNowPlayingByChannel] = useState<Record<string, string>>({});
   const [query, setQuery] = useState('');
   const [libraryQuery, setLibraryQuery] = useState('');
   const didInitRef = useRef(false);
@@ -94,6 +98,9 @@ export default function TvScreen() {
   const [libraryStreamsSyncing, setLibraryStreamsSyncing] = useState(false);
   const [libraryStreamSyncPercent, setLibraryStreamSyncPercent] = useState(0);
   const [libraryStreamsReady, setLibraryStreamsReady] = useState(false);
+  const [libraryPage, setLibraryPage] = useState(0);
+  const [libraryHasMore, setLibraryHasMore] = useState(false);
+  const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
   const [libraryError, setLibraryError] = useState('');
   const [libraryChannels, setLibraryChannels] = useState<IptvLibraryChannel[]>([]);
   const [countryOptions, setCountryOptions] = useState<FilterPickerOption[]>([]);
@@ -160,6 +167,16 @@ export default function TvScreen() {
       console.warn('[TV] Failed to load source stats:', error);
     }
   }, [db]);
+
+  const loadNowPlaying = useCallback(async () => {
+    if (!filterCountry) return;
+    try {
+      const rows = await getNowPlayingEpg(db, filterCountry);
+      setNowPlayingByChannel(Object.fromEntries(rows.map((row) => [row.channel, row.title])));
+    } catch (error) {
+      console.warn('[TV] Failed to load now playing:', error);
+    }
+  }, [db, filterCountry]);
 
   const refreshSource = useCallback(async (source: IptvSource) => {
     setSourceStates((prev) => ({
@@ -243,38 +260,54 @@ export default function TvScreen() {
     }
   }, [refreshSource, selectedSourceId, sources]);
 
-  const loadLibrary = useCallback(async () => {
+  const loadLibrary = useCallback(async (page = 0, append = false) => {
     setLibraryError('');
+    if (append) setLibraryLoadingMore(true);
     try {
+      const filter = {
+        country: filterCountry || undefined,
+        language: filterLanguage || undefined,
+        category: filterCategory || undefined,
+        includeNsfw,
+      };
+      const channelsPromise = libraryQuery.trim()
+        ? searchIptvLibraryChannels(db, libraryQuery.trim(), filter, page, 200)
+        : getIptvLibraryChannels(db, filter, page, 200);
       const [channels, countries, languages, categories] = await Promise.all([
-        getIptvLibraryChannels(db, {
-          country: filterCountry || undefined,
-          language: filterLanguage || undefined,
-          category: filterCategory || undefined,
-          includeNsfw,
-        }),
+        channelsPromise,
         getIptvLibraryFilterOptions(db, 'countries'),
         getIptvLibraryFilterOptions(db, 'languages'),
         getIptvLibraryFilterOptions(db, 'categories'),
       ]);
-      setLibraryChannels(channels);
-      setCountryOptions([
-        { key: '', label: '全部国家' },
-        ...countries.map((item) => ({ key: item.code, label: `${item.flag ?? ''} ${item.name}` })),
-      ]);
-      setLanguageOptions([
-        { key: '', label: '全部语言' },
-        ...languages.map((item) => ({ key: item.code, label: item.name })),
-      ]);
-      setCategoryOptions([
-        { key: '', label: '全部分类' },
-        ...categories.map((item) => ({ key: item.id, label: item.name })),
-      ]);
+      setLibraryChannels((current) => (append ? [...current, ...channels] : channels));
+      setLibraryPage(page);
+      setLibraryHasMore(channels.length === 200);
+      if (page === 0) {
+        setCountryOptions([
+          { key: '', label: '全部国家' },
+          ...countries.map((item) => ({ key: item.code, label: `${item.flag ?? ''} ${item.name}` })),
+        ]);
+        setLanguageOptions([
+          { key: '', label: '全部语言' },
+          ...languages.map((item) => ({ key: item.code, label: item.name })),
+        ]);
+        setCategoryOptions([
+          { key: '', label: '全部分类' },
+          ...categories.map((item) => ({ key: item.id, label: item.name })),
+        ]);
+      }
     } catch (error) {
       console.warn('[TV] Failed to load library:', error);
       setLibraryError(error instanceof Error ? error.message : '在线频道库加载失败');
+    } finally {
+      if (append) setLibraryLoadingMore(false);
     }
-  }, [db, filterCategory, filterCountry, filterLanguage, includeNsfw]);
+  }, [db, filterCategory, filterCountry, filterLanguage, includeNsfw, libraryQuery]);
+
+  const loadMoreLibrary = useCallback(() => {
+    if (!libraryHasMore || libraryLoadingMore) return;
+    void loadLibrary(libraryPage + 1, true);
+  }, [libraryHasMore, libraryLoadingMore, libraryPage, loadLibrary]);
 
   const syncLibrary = useCallback(async () => {
     setLibrarySyncing(true);
@@ -297,6 +330,11 @@ export default function TvScreen() {
           setLibraryStreamSyncPercent(percent);
         });
         setLibraryStreamsReady(true);
+        void syncEpgForCountry(db, filterCountry)
+          .then(loadNowPlaying)
+          .catch((error) => {
+            console.warn('[TV] Failed to sync EPG:', error);
+          });
       } catch (error) {
         console.warn('[TV] Failed to sync library streams:', error);
       } finally {
@@ -310,7 +348,7 @@ export default function TvScreen() {
       setLibrarySyncing(false);
       setLibrarySyncProgress((current) => (libraryStreamsSyncing ? current : ''));
     }
-  }, [db, libraryStreamsSyncing, loadLibrary]);
+  }, [db, filterCountry, libraryStreamsSyncing, loadLibrary, loadNowPlaying]);
 
   useEffect(() => {
     if (tab !== 'library') return;
@@ -322,12 +360,21 @@ export default function TvScreen() {
         await syncLibrary();
       } else {
         await loadLibrary();
+        void loadNowPlaying();
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [tab, loadLibrary, syncLibrary, filterCountry, filterLanguage, filterCategory, includeNsfw, db]);
+  }, [tab, loadLibrary, loadNowPlaying, syncLibrary, filterCountry, filterLanguage, filterCategory, includeNsfw, db]);
+
+  useEffect(() => {
+    if (tab !== 'library') return;
+    const timer = setTimeout(() => {
+      void loadLibrary(0, false);
+    }, 260);
+    return () => clearTimeout(timer);
+  }, [libraryQuery, loadLibrary, tab]);
 
   const selectedState = selectedSourceId != null ? sourceStates[selectedSourceId] : undefined;
   const selectedSource = sources.find((item) => item.id === selectedSourceId) ?? null;
@@ -337,15 +384,6 @@ export default function TvScreen() {
     if (!keyword) return channels;
     return channels.filter((item) => item.name.toLowerCase().includes(keyword));
   }, [query, selectedState]);
-
-  const filteredLibraryChannels = useMemo(() => {
-    const keyword = libraryQuery.trim().toLowerCase();
-    if (!keyword) return libraryChannels;
-    return libraryChannels.filter((item) => (
-      item.name.toLowerCase().includes(keyword)
-      || item.altNames.some((alt) => alt.toLowerCase().includes(keyword))
-    ));
-  }, [libraryChannels, libraryQuery]);
 
   const openM3uChannel = useCallback((channel: IptvChannel) => {
     const source = sources.find((item) => item.id === selectedSourceId);
@@ -399,6 +437,7 @@ export default function TvScreen() {
       status={libraryChannelStatus[item.id]}
       favorite={isLiveFavorite('library', item.id)}
       nsfw={item.isNsfw}
+      nowPlaying={nowPlayingByChannel[item.id]}
       onToggleFavorite={() => {
         void toggleLiveFavorite({
           kind: 'library',
@@ -413,7 +452,7 @@ export default function TvScreen() {
       onPress={() => openLibraryChannel(item)}
       palette={palette}
     />
-  ), [isLiveFavorite, libraryChannelStatus, openLibraryChannel, palette, toggleLiveFavorite]);
+  ), [isLiveFavorite, libraryChannelStatus, nowPlayingByChannel, openLibraryChannel, palette, toggleLiveFavorite]);
 
   const enqueueM3uProbe = useCallback((item: IptvChannel) => {
     if (probedChannelsRef.current.has(item.url)) return;
@@ -518,6 +557,12 @@ export default function TvScreen() {
             </>
           ) : (
             <>
+              <Pressable
+                onPress={() => router.push({ pathname: '/epg', params: { country: filterCountry || 'CN' } })}
+                hitSlop={8}
+                style={styles.headerButton}>
+                <Text style={[styles.headerButtonText, { color: palette.text }]}>节目表</Text>
+              </Pressable>
               <Pressable onPress={() => setDrawerOpen(true)} hitSlop={8} style={styles.headerButton}>
                 <Text style={[styles.headerButtonText, { color: palette.text }]}>筛选</Text>
               </Pressable>
@@ -711,13 +756,20 @@ export default function TvScreen() {
             <ListState text={libraryError} actionLabel="重试" onAction={syncLibrary} palette={palette} />
           ) : (
             <FlashList
-              data={filteredLibraryChannels}
+              data={libraryChannels}
               keyExtractor={(item) => item.id}
               viewabilityConfig={CHANNEL_VIEWABILITY}
               onViewableItemsChanged={handleLibraryChannelViewable}
+              onEndReached={loadMoreLibrary}
+              onEndReachedThreshold={0.5}
               renderItem={renderLibraryChannel}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
+              ListFooterComponent={libraryLoadingMore ? (
+                <View style={styles.loadingMore}>
+                  <ActivityIndicator size="small" color={palette.secondaryText} />
+                </View>
+              ) : null}
             />
           )}
         </>
@@ -751,6 +803,7 @@ function ChannelRow({
   status,
   favorite,
   nsfw,
+  nowPlaying,
   onToggleFavorite,
   onPress,
   palette,
@@ -761,6 +814,7 @@ function ChannelRow({
   status?: 'checking' | 'available' | 'unavailable';
   favorite?: boolean;
   nsfw?: boolean;
+  nowPlaying?: string;
   onToggleFavorite?: () => void;
   onPress: () => void;
   palette: typeof lightPalette;
@@ -785,6 +839,11 @@ function ChannelRow({
       <View style={styles.channelText}>
         <Text style={[styles.channelName, { color: palette.text }]} numberOfLines={1}>{title}</Text>
         {subtitle ? <Text style={[styles.channelMeta, { color: palette.secondaryText }]} numberOfLines={1}>{subtitle}</Text> : null}
+        {nowPlaying ? (
+          <Text style={[styles.channelNowPlaying, { color: palette.accent }]} numberOfLines={1}>
+            正在播 · {nowPlaying}
+          </Text>
+        ) : null}
       </View>
       {status ? <View style={[styles.statusDot, { backgroundColor: statusColor }]} /> : null}
       {nsfw ? (
@@ -1052,6 +1111,12 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: '500',
   },
+  channelNowPlaying: {
+    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
   statusDot: {
     width: 8,
     height: 8,
@@ -1092,5 +1157,10 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 136,
+  },
+  loadingMore: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
