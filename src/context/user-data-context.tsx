@@ -33,6 +33,7 @@ import type {
   WatchHistoryInput,
   WatchHistoryRecord,
 } from '@/models/user-data';
+import { liveFavoriteChannelKey } from '@/utils/live-favorite';
 
 interface UserDataContextValue {
   isHydrating: boolean;
@@ -136,13 +137,17 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
 
   const isLiveFavorite = useCallback(
     (kind: 'm3u' | 'library', key: string) => liveFavorites.some((item) => (
-      item.kind === kind && (kind === 'library' ? item.channelId === key : item.channelUrl === key)
+      item.kind === kind
+        && liveFavoriteChannelKey(kind, item.channelId, item.channelUrl) === key
     )),
     [liveFavorites]
   );
 
   const toggleLiveFavorite = useCallback(async (input: LiveFavoriteInput) => {
-    if (isLiveFavorite(input.kind, input.kind === 'library' ? (input.channelId ?? '') : input.channelUrl)) {
+    if (isLiveFavorite(
+      input.kind,
+      liveFavoriteChannelKey(input.kind, input.channelId, input.channelUrl)
+    )) {
       await dbDeleteLiveFavorite(db, liveFavoriteId(input));
     } else {
       await upsertLiveFavorite(db, input);

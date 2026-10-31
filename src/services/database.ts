@@ -3,22 +3,19 @@ import { PREDEFINED_IPTV_SOURCES } from '@/constants/iptv';
 import { PREDEFINED_SITES } from '@/constants/sites';
 import type { DownloadRecord, DownloadRequestedState, DownloadState, DownloadType } from '@/models/download';
 import type { FavoriteInput, LiveFavoriteInput, LiveWatchHistoryInput, WatchHistoryInput } from '@/models/user-data';
+import { liveFavoriteChannelKey } from '@/utils/live-favorite';
 import { stableWatchHistoryId } from '@/utils/watch-history';
 
 function favoriteId(siteUrl: string, vodId: number) {
   return `${siteUrl}::${vodId}`;
 }
 
-function liveKindKey(kind: 'm3u' | 'library', channelId: string | null, channelUrl: string) {
-  return kind === 'library' ? (channelId ?? '') : channelUrl;
-}
-
 export function liveFavoriteId(input: LiveFavoriteInput) {
-  return `live-fav::${input.kind}::${liveKindKey(input.kind, input.channelId, input.channelUrl)}`;
+  return `live-fav::${input.kind}::${liveFavoriteChannelKey(input.kind, input.channelId, input.channelUrl)}`;
 }
 
 function liveHistoryId(input: LiveWatchHistoryInput) {
-  return `live-hist::${input.kind}::${liveKindKey(input.kind, input.channelId, input.channelUrl)}`;
+  return `live-hist::${input.kind}::${liveFavoriteChannelKey(input.kind, input.channelId, input.channelUrl)}`;
 }
 
 function normalizeKeyword(keyword: string) {
