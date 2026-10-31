@@ -6,7 +6,7 @@ import type {
 } from '@/models/iptv';
 import { fetchJsonWithTimeout } from '@/services/http';
 
-const API_BASE = 'https://iptv-org.github.io/api/';
+const API_BASE = 'https://cdn.jsdelivr.net/gh/iptv-org/api@gh-pages/';
 
 type RawChannel = {
   id: string;
