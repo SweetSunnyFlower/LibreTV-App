@@ -2,11 +2,15 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { PREDEFINED_IPTV_SOURCES } from '@/constants/iptv';
 import { PREDEFINED_SITES } from '@/constants/sites';
 import type { DownloadRecord, DownloadRequestedState, DownloadState, DownloadType } from '@/models/download';
-import type { FavoriteInput, WatchHistoryInput } from '@/models/user-data';
+import type { FavoriteInput, LiveFavoriteInput, LiveWatchHistoryInput, WatchHistoryInput } from '@/models/user-data';
 import { stableWatchHistoryId } from '@/utils/watch-history';
 
 function favoriteId(siteUrl: string, vodId: number) {
   return `${siteUrl}::${vodId}`;
+}
+
+function liveChannelId(channelUrl: string) {
+  return `live::${channelUrl}`;
 }
 
 function normalizeKeyword(keyword: string) {
@@ -202,6 +206,26 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now')),
       updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
+    CREATE TABLE IF NOT EXISTS live_favorite_channels (
+      id TEXT PRIMARY KEY,
+      channelName TEXT NOT NULL,
+      channelUrl TEXT NOT NULL,
+      sourceId INTEGER,
+      sourceName TEXT NOT NULL DEFAULT '',
+      logo TEXT NOT NULL DEFAULT '',
+      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS live_watch_history (
+      id TEXT PRIMARY KEY,
+      channelName TEXT NOT NULL,
+      channelUrl TEXT NOT NULL,
+      sourceId INTEGER,
+      sourceName TEXT NOT NULL DEFAULT '',
+      logo TEXT NOT NULL DEFAULT '',
+      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -210,6 +234,8 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_favorite_vods_updated ON favorite_vods(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_search_history_updated ON search_history(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_watch_history_updated ON watch_history(updatedAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_live_favorite_channels_updated ON live_favorite_channels(updatedAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_live_watch_history_updated ON live_watch_history(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_iptv_library_channels_country ON iptv_library_channels(country);
     CREATE INDEX IF NOT EXISTS idx_iptv_library_streams_channel ON iptv_library_streams(channel);
     CREATE INDEX IF NOT EXISTS idx_iptv_source_channel_cache_source ON iptv_source_channel_cache(sourceId);
@@ -728,4 +754,83 @@ export async function deleteWatchHistory(db: SQLiteDatabase, id: string) {
 
 export async function clearWatchHistory(db: SQLiteDatabase) {
   await db.runAsync('DELETE FROM watch_history');
+}
+
+// ===== Live Favorites / History CRUD =====
+
+export async function getLiveFavorites(db: SQLiteDatabase) {
+  return db.getAllAsync<{
+    id: string;
+    channelName: string;
+    channelUrl: string;
+    sourceId: number | null;
+    sourceName: string;
+    logo: string;
+    createdAt: number;
+    updatedAt: number;
+  }>('SELECT * FROM live_favorite_channels ORDER BY updatedAt DESC');
+}
+
+export async function upsertLiveFavorite(db: SQLiteDatabase, input: LiveFavoriteInput) {
+  const id = liveChannelId(input.channelUrl);
+  await db.runAsync(
+    `INSERT INTO live_favorite_channels (id, channelName, channelUrl, sourceId, sourceName, logo)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       channelName = excluded.channelName,
+       sourceId = excluded.sourceId,
+       sourceName = excluded.sourceName,
+       logo = excluded.logo,
+       updatedAt = strftime('%s','now')`,
+    [id, input.channelName, input.channelUrl, input.sourceId ?? null, input.sourceName, input.logo]
+  );
+}
+
+export async function deleteLiveFavorite(db: SQLiteDatabase, channelUrl: string) {
+  await db.runAsync('DELETE FROM live_favorite_channels WHERE id = ?', [liveChannelId(channelUrl)]);
+}
+
+export async function isLiveFavorite(db: SQLiteDatabase, channelUrl: string) {
+  const row = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM live_favorite_channels WHERE id = ? LIMIT 1',
+    [liveChannelId(channelUrl)]
+  );
+  return !!row;
+}
+
+export async function getLiveWatchHistory(db: SQLiteDatabase) {
+  return db.getAllAsync<{
+    id: string;
+    channelName: string;
+    channelUrl: string;
+    sourceId: number | null;
+    sourceName: string;
+    logo: string;
+    createdAt: number;
+    updatedAt: number;
+  }>('SELECT * FROM live_watch_history ORDER BY updatedAt DESC LIMIT 100');
+}
+
+export async function upsertLiveWatchHistory(db: SQLiteDatabase, input: LiveWatchHistoryInput) {
+  const id = liveChannelId(input.channelUrl);
+  await db.runAsync(
+    `INSERT INTO live_watch_history (id, channelName, channelUrl, sourceId, sourceName, logo)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       channelName = excluded.channelName,
+       sourceId = excluded.sourceId,
+       sourceName = excluded.sourceName,
+       logo = excluded.logo,
+       updatedAt = strftime('%s','now')`,
+    [id, input.channelName, input.channelUrl, input.sourceId ?? null, input.sourceName, input.logo]
+  );
+  return id;
+}
+
+export async function deleteLiveWatchHistory(db: SQLiteDatabase, id: string) {
+  await db.runAsync('DELETE FROM live_watch_history WHERE id = ?', [id]);
+}
+
+export async function clearLiveWatchHistory(db: SQLiteDatabase) {
+  await db.runAsync('DELETE FROM live_watch_history');
 }

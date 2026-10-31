@@ -48,3 +48,29 @@ export type WatchHistoryInput = Omit<WatchHistoryRecord, 'id' | 'createdAt' | 'u
   positionMillis?: number;
   durationMillis?: number;
 };
+
+export interface LiveFavoriteRecord {
+  id: string;
+  channelName: string;
+  channelUrl: string;
+  sourceId: number | null;
+  sourceName: string;
+  logo: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type LiveFavoriteInput = Omit<LiveFavoriteRecord, 'id' | 'createdAt' | 'updatedAt'>;
+
+export interface LiveWatchHistoryRecord {
+  id: string;
+  channelName: string;
+  channelUrl: string;
+  sourceId: number | null;
+  sourceName: string;
+  logo: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type LiveWatchHistoryInput = Omit<LiveWatchHistoryRecord, 'id' | 'createdAt' | 'updatedAt'>;

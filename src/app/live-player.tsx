@@ -1,6 +1,7 @@
 import { getIptvLibraryStreams, pickBestStream } from '@/services/iptv-library';
 import { fetchIptvChannels, getCachedIptvChannels } from '@/services/iptv';
 import type { IptvChannel } from '@/models/iptv';
+import { useUserData } from '@/context/user-data-context';
 import { useEvent } from 'expo';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -31,9 +32,12 @@ export default function LivePlayerScreen() {
     country?: string;
     sourceId?: string;
     sourceUrl?: string;
+    sourceName?: string;
+    logo?: string;
   }>();
 
   const kind = firstParam(params.kind);
+  const { addLiveWatchHistory } = useUserData();
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
@@ -109,6 +113,14 @@ export default function LivePlayerScreen() {
             setCurrentUrl(uri);
             setCurrentSource({ uri });
             retryCountRef.current = 0;
+            const sourceId = Number(firstParam(params.sourceId));
+            void addLiveWatchHistory({
+              channelName: firstParam(params.name) ?? '直播',
+              channelUrl: uri,
+              sourceId: Number.isFinite(sourceId) && sourceId > 0 ? sourceId : null,
+              sourceName: firstParam(params.sourceName) ?? '',
+              logo: firstParam(params.logo) ?? '',
+            });
           }
         } else {
           const channelId = firstParam(params.channelId) ?? '';
@@ -132,6 +144,13 @@ export default function LivePlayerScreen() {
             setCurrentUrl(stream.url);
             setCurrentSource(source);
             retryCountRef.current = 0;
+            void addLiveWatchHistory({
+              channelName: stream.title || firstParam(params.name) || '直播',
+              channelUrl: stream.url,
+              sourceId: null,
+              sourceName: '在线频道库',
+              logo: '',
+            });
           }
         }
 
@@ -151,7 +170,7 @@ export default function LivePlayerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [db, kind, params.channelId, params.name, params.url, player, retryNonce]);
+  }, [addLiveWatchHistory, db, kind, params.channelId, params.name, params.logo, params.sourceId, params.sourceName, params.url, player, retryNonce]);
 
   const showLoading = loading || (!isPlaying && status !== 'error' && !errorMsg);
 
@@ -185,11 +204,19 @@ export default function LivePlayerScreen() {
       setCurrentUrl(channel.url);
       setCurrentSource(source);
       retryCountRef.current = 0;
+      const sourceId = Number(firstParam(params.sourceId));
+      void addLiveWatchHistory({
+        channelName: channel.name,
+        channelUrl: channel.url,
+        sourceId: Number.isFinite(sourceId) && sourceId > 0 ? sourceId : null,
+        sourceName: firstParam(params.sourceName) ?? '',
+        logo: channel.logo ?? '',
+      });
     } catch (error) {
       console.warn('[LivePlayer] Failed to switch channel:', error);
       setErrorMsg(error instanceof Error ? error.message : '切换失败');
     }
-  }, [player]);
+  }, [addLiveWatchHistory, params.sourceId, params.sourceName, player]);
 
   const showControls = useCallback(() => {
     setControlsVisible(true);

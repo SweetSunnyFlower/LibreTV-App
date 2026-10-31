@@ -1,6 +1,7 @@
 import type { FilterPickerOption } from '@/components/iptv/filter-picker';
 import { FilterDrawer, type IptvLibraryFilters } from '@/components/iptv/filter-drawer';
 import { useIptv } from '@/context/iptv-context';
+import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { IptvChannel, IptvLibraryChannel, IptvSource } from '@/models/iptv';
 import { cacheIptvChannels, fetchIptvChannels, getCachedIptvChannels, probeStreamUrl } from '@/services/iptv';
@@ -12,7 +13,7 @@ import {
 } from '@/services/iptv-library';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { ChevronRight, Plus, RefreshCw, Search } from 'lucide-react-native';
+import { ChevronRight, Heart, Plus, RefreshCw, Search } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -57,6 +58,7 @@ export default function TvScreen() {
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
   const { sources } = useIptv();
+  const { isLiveFavorite, toggleLiveFavorite } = useUserData();
 
   const [tab, setTab] = useState<TvTab>('mine');
   const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
@@ -246,6 +248,7 @@ export default function TvScreen() {
   }, [tab, loadLibrary, syncLibrary, filterCountry, filterLanguage, filterCategory, db]);
 
   const selectedState = selectedSourceId != null ? sourceStates[selectedSourceId] : undefined;
+  const selectedSource = sources.find((item) => item.id === selectedSourceId) ?? null;
   const selectedChannels = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     const channels = selectedState?.channels ?? [];
@@ -265,6 +268,7 @@ export default function TvScreen() {
         logo: channel.logo ?? '',
         sourceId: selectedSourceId != null ? String(selectedSourceId) : '',
         sourceUrl: source?.url ?? '',
+        sourceName: source?.name ?? '',
       },
     });
   }, [router, selectedSourceId, sources]);
@@ -449,6 +453,16 @@ export default function TvScreen() {
                     title={item.name}
                     subtitle={item.group}
                     status={channelStatus[item.url]}
+                    favorite={isLiveFavorite(item.url)}
+                    onToggleFavorite={() => {
+                      void toggleLiveFavorite({
+                        channelName: item.name,
+                        channelUrl: item.url,
+                        sourceId: selectedSourceId,
+                        sourceName: selectedSource?.name ?? '',
+                        logo: item.logo ?? '',
+                      });
+                    }}
                     onPress={() => openM3uChannel(item)}
                     palette={palette}
                   />
@@ -501,6 +515,8 @@ function ChannelRow({
   title,
   subtitle,
   status,
+  favorite,
+  onToggleFavorite,
   onPress,
   palette,
 }: {
@@ -508,6 +524,8 @@ function ChannelRow({
   title: string;
   subtitle?: string;
   status?: 'checking' | 'available' | 'unavailable';
+  favorite?: boolean;
+  onToggleFavorite?: () => void;
   onPress: () => void;
   palette: typeof lightPalette;
 }) {
@@ -533,6 +551,16 @@ function ChannelRow({
         {subtitle ? <Text style={[styles.channelMeta, { color: palette.secondaryText }]} numberOfLines={1}>{subtitle}</Text> : null}
       </View>
       {status ? <View style={[styles.statusDot, { backgroundColor: statusColor }]} /> : null}
+      {onToggleFavorite ? (
+        <Pressable onPress={onToggleFavorite} hitSlop={6}>
+          <Heart
+            size={17}
+            color={favorite ? palette.text : palette.secondaryText}
+            fill={favorite ? palette.text : 'transparent'}
+            strokeWidth={1.8}
+          />
+        </Pressable>
+      ) : null}
       <ChevronRight size={17} color={palette.secondaryText} strokeWidth={1.8} />
     </Pressable>
   );
