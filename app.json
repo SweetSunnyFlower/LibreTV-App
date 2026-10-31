@@ -65,7 +65,8 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "extraProguardRules": "-keep class androidx.work.impl.WorkDatabase_Impl { <init>(); }\n-keep class * extends androidx.work.InputMerger { <init>(); }"
           }
         }
       ]
