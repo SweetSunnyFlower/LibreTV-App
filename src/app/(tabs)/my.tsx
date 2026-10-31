@@ -15,8 +15,10 @@ export default function MyScreen() {
   const { downloads, isHydrating: downloadsHydrating } = useDownloads();
   const {
     favorites,
+    liveFavorites,
     searchHistory,
     watchHistory,
+    liveWatchHistory,
     isHydrating: userDataHydrating,
   } = useUserData();
   const isHydrating = downloadsHydrating || userDataHydrating;
@@ -41,7 +43,7 @@ export default function MyScreen() {
             <MenuItem
               title="我的收藏"
               subtitle="已收藏的影视"
-              count={favorites.length}
+              count={favorites.length + liveFavorites.length}
               icon={Heart}
               onPress={() => router.push('/mine/favorites')}
               palette={palette}
@@ -57,7 +59,7 @@ export default function MyScreen() {
             <MenuItem
               title="观看历史"
               subtitle="继续上次观看"
-              count={watchHistory.length}
+              count={watchHistory.length + liveWatchHistory.length}
               icon={Clock}
               onPress={() => router.push('/mine/watch-history')}
               palette={palette}

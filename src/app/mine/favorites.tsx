@@ -38,10 +38,11 @@ export default function FavoritesScreen() {
     router.push({
       pathname: '/live-player',
       params: {
-        kind: 'm3u',
-        url: item.channelUrl,
+        kind: item.kind,
+        url: item.kind === 'm3u' ? item.channelUrl : '',
+        channelId: item.kind === 'library' ? (item.channelId ?? '') : '',
         name: item.channelName,
-        sourceId: item.sourceId != null ? String(item.sourceId) : '',
+        sourceId: item.kind === 'm3u' && item.sourceId != null ? String(item.sourceId) : '',
         sourceName: item.sourceName,
         logo: item.logo,
       },
@@ -64,6 +65,8 @@ export default function FavoritesScreen() {
 
   const removeLive = useCallback((item: LiveFavoriteRecord) => {
     void toggleLiveFavorite({
+      kind: item.kind,
+      channelId: item.channelId,
       channelName: item.channelName,
       channelUrl: item.channelUrl,
       sourceId: item.sourceId,

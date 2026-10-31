@@ -9,8 +9,16 @@ function favoriteId(siteUrl: string, vodId: number) {
   return `${siteUrl}::${vodId}`;
 }
 
-function liveChannelId(channelUrl: string) {
-  return `live::${channelUrl}`;
+function liveKindKey(kind: 'm3u' | 'library', channelId: string | null, channelUrl: string) {
+  return kind === 'library' ? (channelId ?? '') : channelUrl;
+}
+
+export function liveFavoriteId(input: LiveFavoriteInput) {
+  return `live-fav::${input.kind}::${liveKindKey(input.kind, input.channelId, input.channelUrl)}`;
+}
+
+function liveHistoryId(input: LiveWatchHistoryInput) {
+  return `live-hist::${input.kind}::${liveKindKey(input.kind, input.channelId, input.channelUrl)}`;
 }
 
 function normalizeKeyword(keyword: string) {
@@ -259,6 +267,16 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
   const watchHistoryColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(watch_history)');
   const existingWatchHistoryColumns = new Set(watchHistoryColumns.map((column) => column.name));
   await ensureColumn(db, 'watch_history', 'sourceIndex', 'INTEGER', existingWatchHistoryColumns);
+
+  const liveFavoriteColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(live_favorite_channels)');
+  const existingLiveFavoriteColumns = new Set(liveFavoriteColumns.map((column) => column.name));
+  await ensureColumn(db, 'live_favorite_channels', 'kind', `TEXT NOT NULL DEFAULT 'm3u'`, existingLiveFavoriteColumns);
+  await ensureColumn(db, 'live_favorite_channels', 'channelId', 'TEXT', existingLiveFavoriteColumns);
+
+  const liveHistoryColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(live_watch_history)');
+  const existingLiveHistoryColumns = new Set(liveHistoryColumns.map((column) => column.name));
+  await ensureColumn(db, 'live_watch_history', 'kind', `TEXT NOT NULL DEFAULT 'm3u'`, existingLiveHistoryColumns);
+  await ensureColumn(db, 'live_watch_history', 'channelId', 'TEXT', existingLiveHistoryColumns);
 
   await db.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_downloads_runnable ON downloads(requestedState, state, leaseUntil, createdAt);
@@ -761,6 +779,8 @@ export async function clearWatchHistory(db: SQLiteDatabase) {
 export async function getLiveFavorites(db: SQLiteDatabase) {
   return db.getAllAsync<{
     id: string;
+    kind: 'm3u' | 'library';
+    channelId: string | null;
     channelName: string;
     channelUrl: string;
     sourceId: number | null;
@@ -772,35 +792,32 @@ export async function getLiveFavorites(db: SQLiteDatabase) {
 }
 
 export async function upsertLiveFavorite(db: SQLiteDatabase, input: LiveFavoriteInput) {
-  const id = liveChannelId(input.channelUrl);
+  const id = liveFavoriteId(input);
   await db.runAsync(
-    `INSERT INTO live_favorite_channels (id, channelName, channelUrl, sourceId, sourceName, logo)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO live_favorite_channels (id, kind, channelId, channelName, channelUrl, sourceId, sourceName, logo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
+       kind = excluded.kind,
+       channelId = excluded.channelId,
        channelName = excluded.channelName,
+       channelUrl = excluded.channelUrl,
        sourceId = excluded.sourceId,
        sourceName = excluded.sourceName,
        logo = excluded.logo,
        updatedAt = strftime('%s','now')`,
-    [id, input.channelName, input.channelUrl, input.sourceId ?? null, input.sourceName, input.logo]
+    [id, input.kind, input.channelId ?? null, input.channelName, input.channelUrl, input.sourceId ?? null, input.sourceName, input.logo]
   );
 }
 
-export async function deleteLiveFavorite(db: SQLiteDatabase, channelUrl: string) {
-  await db.runAsync('DELETE FROM live_favorite_channels WHERE id = ?', [liveChannelId(channelUrl)]);
-}
-
-export async function isLiveFavorite(db: SQLiteDatabase, channelUrl: string) {
-  const row = await db.getFirstAsync<{ id: string }>(
-    'SELECT id FROM live_favorite_channels WHERE id = ? LIMIT 1',
-    [liveChannelId(channelUrl)]
-  );
-  return !!row;
+export async function deleteLiveFavorite(db: SQLiteDatabase, id: string) {
+  await db.runAsync('DELETE FROM live_favorite_channels WHERE id = ?', [id]);
 }
 
 export async function getLiveWatchHistory(db: SQLiteDatabase) {
   return db.getAllAsync<{
     id: string;
+    kind: 'm3u' | 'library';
+    channelId: string | null;
     channelName: string;
     channelUrl: string;
     sourceId: number | null;
@@ -812,17 +829,20 @@ export async function getLiveWatchHistory(db: SQLiteDatabase) {
 }
 
 export async function upsertLiveWatchHistory(db: SQLiteDatabase, input: LiveWatchHistoryInput) {
-  const id = liveChannelId(input.channelUrl);
+  const id = liveHistoryId(input);
   await db.runAsync(
-    `INSERT INTO live_watch_history (id, channelName, channelUrl, sourceId, sourceName, logo)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO live_watch_history (id, kind, channelId, channelName, channelUrl, sourceId, sourceName, logo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
+       kind = excluded.kind,
+       channelId = excluded.channelId,
        channelName = excluded.channelName,
+       channelUrl = excluded.channelUrl,
        sourceId = excluded.sourceId,
        sourceName = excluded.sourceName,
        logo = excluded.logo,
        updatedAt = strftime('%s','now')`,
-    [id, input.channelName, input.channelUrl, input.sourceId ?? null, input.sourceName, input.logo]
+    [id, input.kind, input.channelId ?? null, input.channelName, input.channelUrl, input.sourceId ?? null, input.sourceName, input.logo]
   );
   return id;
 }

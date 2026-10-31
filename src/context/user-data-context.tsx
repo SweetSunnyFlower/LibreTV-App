@@ -14,6 +14,7 @@ import {
   getLiveWatchHistory,
   getSearchHistory,
   getWatchHistory,
+  liveFavoriteId,
   upsertLiveFavorite,
   upsertLiveWatchHistory,
   upsertFavorite,
@@ -42,7 +43,7 @@ interface UserDataContextValue {
   liveWatchHistory: LiveWatchHistoryRecord[];
   refreshUserData: () => Promise<void>;
   isFavorite: (siteUrl: string, vodId: number) => boolean;
-  isLiveFavorite: (channelUrl: string) => boolean;
+  isLiveFavorite: (kind: 'm3u' | 'library', key: string) => boolean;
   toggleFavorite: (input: FavoriteInput) => Promise<void>;
   toggleLiveFavorite: (input: LiveFavoriteInput) => Promise<void>;
   addSearchHistory: (keyword: string, siteUrl: string, siteName: string, resultCount: number) => Promise<void>;
@@ -134,13 +135,15 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
   }, [db, isFavorite, refreshUserData]);
 
   const isLiveFavorite = useCallback(
-    (channelUrl: string) => liveFavorites.some((item) => item.channelUrl === channelUrl),
+    (kind: 'm3u' | 'library', key: string) => liveFavorites.some((item) => (
+      item.kind === kind && (kind === 'library' ? item.channelId === key : item.channelUrl === key)
+    )),
     [liveFavorites]
   );
 
   const toggleLiveFavorite = useCallback(async (input: LiveFavoriteInput) => {
-    if (isLiveFavorite(input.channelUrl)) {
-      await dbDeleteLiveFavorite(db, input.channelUrl);
+    if (isLiveFavorite(input.kind, input.kind === 'library' ? (input.channelId ?? '') : input.channelUrl)) {
+      await dbDeleteLiveFavorite(db, liveFavoriteId(input));
     } else {
       await upsertLiveFavorite(db, input);
     }

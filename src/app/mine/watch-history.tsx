@@ -48,10 +48,11 @@ export default function WatchHistoryScreen() {
     router.push({
       pathname: '/live-player',
       params: {
-        kind: 'm3u',
-        url: item.channelUrl,
+        kind: item.kind,
+        url: item.kind === 'm3u' ? item.channelUrl : '',
+        channelId: item.kind === 'library' ? (item.channelId ?? '') : '',
         name: item.channelName,
-        sourceId: item.sourceId != null ? String(item.sourceId) : '',
+        sourceId: item.kind === 'm3u' && item.sourceId != null ? String(item.sourceId) : '',
         sourceName: item.sourceName,
         logo: item.logo,
       },

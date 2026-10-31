@@ -118,6 +118,8 @@ export default function LivePlayerScreen() {
             retryCountRef.current = 0;
             const sourceId = Number(firstParam(params.sourceId));
             void addLiveWatchHistory({
+              kind: 'm3u',
+              channelId: null,
               channelName: firstParam(params.name) ?? '直播',
               channelUrl: uri,
               sourceId: Number.isFinite(sourceId) && sourceId > 0 ? sourceId : null,
@@ -149,6 +151,8 @@ export default function LivePlayerScreen() {
             setCurrentSource(source);
             retryCountRef.current = 0;
             void addLiveWatchHistory({
+              kind: 'library',
+              channelId: firstParam(params.channelId) ?? null,
               channelName: stream.title || firstParam(params.name) || '直播',
               channelUrl: stream.url,
               sourceId: null,
@@ -217,6 +221,8 @@ export default function LivePlayerScreen() {
       retryCountRef.current = 0;
       const sourceId = Number(firstParam(params.sourceId));
       void addLiveWatchHistory({
+        kind: 'm3u',
+        channelId: null,
         channelName: channel.name,
         channelUrl: channel.url,
         sourceId: Number.isFinite(sourceId) && sourceId > 0 ? sourceId : null,

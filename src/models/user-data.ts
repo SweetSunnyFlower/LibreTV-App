@@ -51,6 +51,8 @@ export type WatchHistoryInput = Omit<WatchHistoryRecord, 'id' | 'createdAt' | 'u
 
 export interface LiveFavoriteRecord {
   id: string;
+  kind: 'm3u' | 'library';
+  channelId: string | null;
   channelName: string;
   channelUrl: string;
   sourceId: number | null;
@@ -64,6 +66,8 @@ export type LiveFavoriteInput = Omit<LiveFavoriteRecord, 'id' | 'createdAt' | 'u
 
 export interface LiveWatchHistoryRecord {
   id: string;
+  kind: 'm3u' | 'library';
+  channelId: string | null;
   channelName: string;
   channelUrl: string;
   sourceId: number | null;

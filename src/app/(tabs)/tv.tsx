@@ -305,10 +305,22 @@ export default function TvScreen() {
       title={item.name}
       subtitle={item.altNames.length > 0 ? item.altNames.join(' · ') : (item.categories.slice(0, 3).join(' · ') || item.country)}
       status={libraryChannelStatus[item.id]}
+      favorite={isLiveFavorite('library', item.id)}
+      onToggleFavorite={() => {
+        void toggleLiveFavorite({
+          kind: 'library',
+          channelId: item.id,
+          channelName: item.name,
+          channelUrl: '',
+          sourceId: null,
+          sourceName: '在线频道库',
+          logo: '',
+        });
+      }}
       onPress={() => openLibraryChannel(item)}
       palette={palette}
     />
-  ), [libraryChannelStatus, openLibraryChannel, palette]);
+  ), [isLiveFavorite, libraryChannelStatus, openLibraryChannel, palette, toggleLiveFavorite]);
 
   const handleChannelViewable = useCallback(({ viewableItems }: { viewableItems: Array<{ item: IptvChannel }> }) => {
     for (const { item } of viewableItems) {
@@ -490,9 +502,11 @@ export default function TvScreen() {
                     title={item.name}
                     subtitle={item.group}
                     status={channelStatus[item.url]}
-                    favorite={isLiveFavorite(item.url)}
+                    favorite={isLiveFavorite('m3u', item.url)}
                     onToggleFavorite={() => {
                       void toggleLiveFavorite({
+                        kind: 'm3u',
+                        channelId: null,
                         channelName: item.name,
                         channelUrl: item.url,
                         sourceId: selectedSourceId,
