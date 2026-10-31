@@ -317,6 +317,10 @@ export async function getIptvLibraryChannels(db: SQLiteDatabase, filter: IptvLib
     clauses.push('isNsfw = 0');
   }
 
+  if (clauses.length === 0) {
+    clauses.push('1 = 1');
+  }
+
   if (filter.country) {
     clauses.push('country = ?');
     params.push(filter.country);
