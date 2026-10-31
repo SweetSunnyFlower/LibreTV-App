@@ -4,7 +4,7 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Pause, Play } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,7 +26,6 @@ export default function LivePlayerScreen() {
   }>();
 
   const kind = firstParam(params.kind);
-  const [title, setTitle] = useState(firstParam(params.name) ?? '直播');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
@@ -57,7 +56,6 @@ export default function LivePlayerScreen() {
         if (kind === 'm3u') {
           const uri = firstParam(params.url) ?? '';
           if (!uri) throw new Error('缺少播放地址');
-          setTitle(firstParam(params.name) ?? '直播');
           if (cancelled) return;
           await player.replaceAsync({ uri });
         } else {
@@ -71,7 +69,6 @@ export default function LivePlayerScreen() {
           if (stream.referrer) headers.Referer = stream.referrer;
           if (stream.userAgent) headers['User-Agent'] = stream.userAgent;
 
-          setTitle(stream.title || firstParam(params.name) || '直播');
           if (cancelled) return;
           await player.replaceAsync(
             Object.keys(headers).length > 0
@@ -100,6 +97,14 @@ export default function LivePlayerScreen() {
 
   const showLoading = loading || (!isPlaying && status !== 'error' && !errorMsg);
 
+  const togglePlayback = useCallback(() => {
+    if (isPlaying) {
+      player.pause();
+    } else {
+      player.play();
+    }
+  }, [isPlaying, player]);
+
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
@@ -113,11 +118,8 @@ export default function LivePlayerScreen() {
       {!errorMsg ? (
         <VideoView
           player={player}
-          nativeControls
-          allowsPictureInPicture
-          startsPictureInPictureAutomatically
+          nativeControls={false}
           contentFit="contain"
-          fullscreenOptions={{ enable: true, orientation: 'landscape' }}
           style={StyleSheet.absoluteFill}
         />
       ) : null}
@@ -146,9 +148,13 @@ export default function LivePlayerScreen() {
         <ChevronLeft size={27} color="#fff" strokeWidth={2.15} />
       </Pressable>
 
-      <View style={[styles.titleWrap, { bottom: insets.bottom + 18 }]} pointerEvents="none">
-        <Text style={styles.title} numberOfLines={1}>{title}</Text>
-      </View>
+      <Pressable
+        style={styles.playPauseButton}
+        onPress={togglePlayback}
+        accessibilityLabel={isPlaying ? '暂停' : '播放'}
+        hitSlop={10}>
+        {isPlaying ? <Pause size={26} color="#fff" strokeWidth={2} /> : <Play size={26} color="#fff" strokeWidth={2} />}
+      </Pressable>
     </View>
   );
 }
@@ -276,23 +282,24 @@ const styles = StyleSheet.create({
   backButton: {
     position: 'absolute',
     left: 12,
+    top: 0,
     width: 44,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.42)',
   },
-  titleWrap: {
+  playPauseButton: {
     position: 'absolute',
-    left: 20,
-    right: 20,
-  },
-  title: {
-    color: '#fff',
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '800',
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowRadius: 4,
+    left: '50%',
+    top: '50%',
+    width: 56,
+    height: 56,
+    marginLeft: -28,
+    marginTop: -28,
+    borderRadius: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.42)',
   },
 });
