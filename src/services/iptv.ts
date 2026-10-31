@@ -12,6 +12,12 @@ export async function fetchIptvChannels(url: string, signal?: AbortSignal) {
   return channels;
 }
 
+export async function probeIptvSource(url: string) {
+  const content = await fetchTextWithTimeout(url, {}, 10000);
+  const channels = parseM3U(content);
+  return channels.length;
+}
+
 export async function getCachedIptvChannels(db: SQLiteDatabase, sourceId: number) {
   const rows = await db.getAllAsync<{
     name: string;

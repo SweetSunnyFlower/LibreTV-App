@@ -5,11 +5,12 @@ import { useIptv } from '@/context/iptv-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { IptvSource } from '@/models/iptv';
 import { deleteIptvSource as dbDeleteIptvSource } from '@/services/database';
+import { probeIptvSource } from '@/services/iptv';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { Plus, Tv, Trash2 } from 'lucide-react-native';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export default function LiveSourcesScreen() {
@@ -19,6 +20,24 @@ export default function LiveSourcesScreen() {
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
   const dialog = useAppDialog();
+  const [availability, setAvailability] = useState<Record<number, { status: 'checking' | 'available' | 'unavailable'; count?: number }>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    for (const source of sources) {
+      setAvailability((prev) => ({ ...prev, [source.id]: { status: 'checking' } }));
+      probeIptvSource(source.url)
+        .then((count) => {
+          if (!cancelled) setAvailability((prev) => ({ ...prev, [source.id]: { status: 'available', count } }));
+        })
+        .catch(() => {
+          if (!cancelled) setAvailability((prev) => ({ ...prev, [source.id]: { status: 'unavailable' } }));
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [sources]);
 
   const handleDelete = useCallback(
     (item: IptvSource) => {
@@ -56,6 +75,20 @@ export default function LiveSourcesScreen() {
   );
 
   const renderItem = ({ item }: { item: IptvSource }) => {
+    const status = availability[item.id];
+    const statusLabel = status?.status === 'checking'
+      ? '检测中…'
+      : status?.status === 'available'
+        ? `可用 · ${status.count ?? 0} 个频道`
+        : status?.status === 'unavailable'
+          ? '失效'
+          : '未检测';
+    const statusColor = status?.status === 'available'
+      ? palette.success
+      : status?.status === 'unavailable'
+        ? palette.danger
+        : palette.secondaryText;
+
     return (
       <View style={[styles.sourceItem, { borderBottomColor: palette.border }]}>
         <View style={styles.iconSlot}>
@@ -64,6 +97,7 @@ export default function LiveSourcesScreen() {
         <View style={styles.sourceTitleGroup}>
           <Text style={[styles.sourceName, { color: palette.text }]} numberOfLines={1}>{item.name}</Text>
           <Text style={[styles.sourceUrl, { color: palette.secondaryText }]} numberOfLines={1}>{item.url}</Text>
+          <Text style={[styles.statusText, { color: statusColor }]}>{statusLabel}</Text>
         </View>
         <View style={styles.sourceActions}>
           <Pressable onPress={() => handleEdit(item)} hitSlop={8}>
@@ -113,6 +147,8 @@ const lightPalette = {
   text: '#111111',
   secondaryText: '#8A8A8A',
   border: '#E8E8E6',
+  success: '#2E7D32',
+  danger: '#C62828',
 };
 
 const darkPalette = {
@@ -120,6 +156,8 @@ const darkPalette = {
   text: '#FAFAFA',
   secondaryText: '#8E8E8E',
   border: '#2A2A2A',
+  success: '#81C784',
+  danger: '#E57373',
 };
 
 const styles = StyleSheet.create({
@@ -172,6 +210,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '500',
+  },
+  statusText: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   sourceActions: {
     flexDirection: 'row',
