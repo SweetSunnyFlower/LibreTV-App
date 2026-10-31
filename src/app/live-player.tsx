@@ -40,6 +40,7 @@ export default function LivePlayerScreen() {
   const [currentUrl, setCurrentUrl] = useState(firstParam(params.url) ?? '');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerChannels, setDrawerChannels] = useState<IptvChannel[]>([]);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const drawerX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
 
   const player = useVideoPlayer(null, () => {});
@@ -182,6 +183,8 @@ export default function LivePlayerScreen() {
         />
       ) : null}
 
+      <Pressable style={styles.tapOverlay} onPress={() => setControlsVisible((value) => !value)} />
+
       {showLoading && !errorMsg ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
           <DotsLoading />
@@ -198,15 +201,17 @@ export default function LivePlayerScreen() {
         </View>
       ) : null}
 
-      <Pressable
-        style={[styles.backButton, { top: insets.top + 8 }]}
-        onPress={handleBack}
-        hitSlop={8}
-        accessibilityLabel="返回">
-        <ChevronLeft size={27} color="#fff" strokeWidth={2.15} />
-      </Pressable>
+      {controlsVisible ? (
+        <Pressable
+          style={[styles.backButton, { top: insets.top + 8 }]}
+          onPress={handleBack}
+          hitSlop={8}
+          accessibilityLabel="返回">
+          <ChevronLeft size={27} color="#fff" strokeWidth={2.15} />
+        </Pressable>
+      ) : null}
 
-      {kind === 'm3u' ? (
+      {controlsVisible && kind === 'm3u' ? (
         <Pressable
           style={[styles.channelListButton, { top: insets.top + 8 }]}
           onPress={() => setDrawerOpen(true)}
@@ -216,13 +221,15 @@ export default function LivePlayerScreen() {
         </Pressable>
       ) : null}
 
-      <Pressable
-        style={styles.playPauseButton}
-        onPress={togglePlayback}
-        accessibilityLabel={isPlaying ? '暂停' : '播放'}
-        hitSlop={10}>
-        {isPlaying ? <Pause size={26} color="#fff" strokeWidth={2} /> : <Play size={26} color="#fff" strokeWidth={2} />}
-      </Pressable>
+      {controlsVisible ? (
+        <Pressable
+          style={styles.playPauseButton}
+          onPress={togglePlayback}
+          accessibilityLabel={isPlaying ? '暂停' : '播放'}
+          hitSlop={10}>
+          {isPlaying ? <Pause size={26} color="#fff" strokeWidth={2} /> : <Play size={26} color="#fff" strokeWidth={2} />}
+        </Pressable>
+      ) : null}
 
       {drawerOpen ? <Pressable style={styles.drawerBackdrop} onPress={() => setDrawerOpen(false)} /> : null}
       <Animated.View style={[styles.channelDrawer, { transform: [{ translateX: drawerX }] }]}>
@@ -314,6 +321,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  tapOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   loadingOverlay: {
     position: 'absolute',
@@ -452,7 +466,7 @@ const styles = StyleSheet.create({
     height: 56,
     marginLeft: -28,
     marginTop: -28,
-    borderRadius: 0,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.42)',
