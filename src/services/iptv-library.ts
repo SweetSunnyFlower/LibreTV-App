@@ -73,15 +73,16 @@ type StreamRow = {
   labels: string;
 };
 
-async function fetchLibraryJson<T>(path: string) {
+async function fetchLibraryJson<T>(path: string, timeoutMs = 120000) {
   let lastError: unknown = null;
   for (const base of API_BASES) {
     try {
-      return await fetchJsonWithTimeout<T>(`${base}${path}`, {}, 120000);
+      return await fetchJsonWithTimeout<T>(`${base}${path}`, {}, timeoutMs);
     } catch (error) {
       lastError = error;
     }
   }
+  console.warn(`[IPTV Library] ${path} fetch failed`, lastError);
   throw lastError ?? new Error('直播库请求失败');
 }
 
@@ -140,15 +141,99 @@ export function pickBestStream(streams: IptvLibraryStream[]) {
     })[0].stream;
 }
 
-export async function syncIptvLibrary(db: SQLiteDatabase) {
-  const [channels, streams, feeds, countries, languages, categories] = await Promise.all([
-    fetchLibraryJson<RawChannel[]>('channels.json'),
-    fetchLibraryJson<RawStream[]>('streams.json'),
-    fetchLibraryJson<RawFeed[]>('feeds.json'),
-    fetchLibraryJson<RawCountry[]>('countries.json'),
-    fetchLibraryJson<RawLanguage[]>('languages.json'),
-    fetchLibraryJson<RawCategory[]>('categories.json'),
+export type IptvLibrarySyncProgress = {
+  label: string;
+  percent: number;
+};
+
+function createProgressTracker(
+  onProgress: ((progress: IptvLibrarySyncProgress) => void) | undefined,
+  total: number,
+  label: string
+) {
+  let completed = 0;
+  return <T,>(promise: Promise<T>) => promise.then((result) => {
+    completed += 1;
+    onProgress?.({
+      label,
+      percent: Math.min(100, Math.round((completed / total) * 70)),
+    });
+    return result;
+  });
+}
+
+export async function syncIptvLibraryChannels(
+  db: SQLiteDatabase,
+  onProgress?: (progress: IptvLibrarySyncProgress) => void
+) {
+  onProgress?.({ label: '正在下载频道数据', percent: 0 });
+  const track = createProgressTracker(onProgress, 4, '正在下载频道数据');
+
+  const [channels, countries, languages, categories] = await Promise.all([
+    track(fetchLibraryJson<RawChannel[]>('channels.json', 120000)),
+    track(fetchLibraryJson<RawCountry[]>('countries.json', 25000)),
+    track(fetchLibraryJson<RawLanguage[]>('languages.json', 25000)),
+    track(fetchLibraryJson<RawCategory[]>('categories.json', 25000)),
   ]);
+
+  onProgress?.({ label: '正在写入数据库', percent: 78 });
+
+  await db.withTransactionAsync(async () => {
+    await db.execAsync('DELETE FROM iptv_library_channels');
+
+    const insertChannel = await db.prepareAsync(
+      'INSERT INTO iptv_library_channels (id, name, country, languages, categories, isNsfw, altNames) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    try {
+      for (const channel of channels) {
+        await insertChannel.executeAsync(
+          channel.id,
+          channel.name ?? channel.id,
+          channel.country ?? '',
+          JSON.stringify([]),
+          JSON.stringify(channel.categories ?? []),
+          channel.is_nsfw ? 1 : 0,
+          JSON.stringify(channel.alt_names ?? [])
+        );
+      }
+    } finally {
+      await insertChannel.finalizeAsync();
+    }
+
+    await db.runAsync(
+      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
+      ['countries', JSON.stringify(countries.map((item) => ({ code: item.code, name: item.name, flag: item.flag ?? '' })))]
+    );
+    await db.runAsync(
+      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
+      ['languages', JSON.stringify(languages.map((item) => ({ code: item.code, name: item.name })))]
+    );
+    await db.runAsync(
+      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
+      ['categories', JSON.stringify(categories.map((item) => ({ id: item.id, name: item.name })))]
+    );
+    await db.runAsync(
+      'INSERT OR REPLACE INTO iptv_library_meta (id, syncedAt) VALUES (1, ?)',
+      [Math.floor(Date.now() / 1000)]
+    );
+  });
+
+  onProgress?.({ label: '频道数据同步完成', percent: 100 });
+}
+
+export async function syncIptvLibraryStreams(
+  db: SQLiteDatabase,
+  onProgress?: (progress: IptvLibrarySyncProgress) => void
+) {
+  onProgress?.({ label: '正在后台同步流数据', percent: 0 });
+  const track = createProgressTracker(onProgress, 2, '正在后台同步流数据');
+
+  const [feeds, streams] = await Promise.all([
+    track(fetchLibraryJson<RawFeed[]>('feeds.json', 120000)),
+    track(fetchLibraryJson<RawStream[]>('streams.json', 120000)),
+  ]);
+
+  onProgress?.({ label: '正在写入流数据', percent: 78 });
 
   const languagesByChannel = new Map<string, string[]>();
   for (const feed of feeds) {
@@ -161,28 +246,17 @@ export async function syncIptvLibrary(db: SQLiteDatabase) {
   }
 
   await db.withTransactionAsync(async () => {
-    await db.execAsync(`
-      DELETE FROM iptv_library_streams;
-      DELETE FROM iptv_library_channels;
-    `);
+    await db.execAsync('DELETE FROM iptv_library_streams');
 
-    const insertChannel = await db.prepareAsync(
-      'INSERT INTO iptv_library_channels (id, name, country, languages, categories, isNsfw, altNames) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    const updateChannelLanguage = await db.prepareAsync(
+      'UPDATE iptv_library_channels SET languages = ? WHERE id = ?'
     );
     try {
-      for (const channel of channels) {
-        await insertChannel.executeAsync(
-          channel.id,
-          channel.name ?? channel.id,
-          channel.country ?? '',
-          JSON.stringify(languagesByChannel.get(channel.id) ?? []),
-          JSON.stringify(channel.categories ?? []),
-          channel.is_nsfw ? 1 : 0,
-          JSON.stringify(channel.alt_names ?? [])
-        );
+      for (const [channelId, languages] of languagesByChannel) {
+        await updateChannelLanguage.executeAsync(JSON.stringify(languages), channelId);
       }
     } finally {
-      await insertChannel.finalizeAsync();
+      await updateChannelLanguage.finalizeAsync();
     }
 
     const insertStream = await db.prepareAsync(
@@ -206,22 +280,12 @@ export async function syncIptvLibrary(db: SQLiteDatabase) {
     }
 
     await db.runAsync(
-      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
-      ['countries', JSON.stringify(countries.map((item) => ({ code: item.code, name: item.name, flag: item.flag ?? '' })))]
-    );
-    await db.runAsync(
-      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
-      ['languages', JSON.stringify(languages.map((item) => ({ code: item.code, name: item.name })))]
-    );
-    await db.runAsync(
-      'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
-      ['categories', JSON.stringify(categories.map((item) => ({ id: item.id, name: item.name })))]
-    );
-    await db.runAsync(
       'INSERT OR REPLACE INTO iptv_library_meta (id, syncedAt) VALUES (1, ?)',
       [Math.floor(Date.now() / 1000)]
     );
   });
+
+  onProgress?.({ label: '流数据同步完成', percent: 100 });
 }
 
 export async function getIptvLibrarySyncedAt(db: SQLiteDatabase) {

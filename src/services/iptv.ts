@@ -18,20 +18,36 @@ export async function probeIptvSource(url: string) {
   return channels.length;
 }
 
-export async function probeStreamUrl(url: string) {
+export async function probeStreamUrl(url: string, externalSignal?: AbortSignal) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
-  try {
+  const handleExternalAbort = () => controller.abort();
+  externalSignal?.addEventListener('abort', handleExternalAbort, { once: true });
+
+  const request = async (useRange: boolean) => {
     const response = await fetch(url, {
       method: 'GET',
       signal: controller.signal,
-      headers: { Range: 'bytes=0-0' },
+      headers: useRange ? { Range: 'bytes=0-0' } : undefined,
     });
-    return response.ok || response.status === 200 || response.status === 206;
+    return response;
+  };
+
+  try {
+    const rangeResponse = await request(true);
+    if (rangeResponse.ok) return true;
+
+    if ([400, 403, 405, 416].includes(rangeResponse.status)) {
+      const plainResponse = await request(false);
+      return plainResponse.ok;
+    }
+
+    return false;
   } catch {
     return false;
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', handleExternalAbort);
     controller.abort();
   }
 }

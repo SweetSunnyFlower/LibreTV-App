@@ -11,12 +11,14 @@ import {
   getIptvLibraryStreams,
   getIptvLibrarySyncedAt,
   pickBestStream,
-  syncIptvLibrary,
+  syncIptvLibraryChannels,
+  syncIptvLibraryStreams,
 } from '@/services/iptv-library';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { ChevronRight, Heart, Plus, RefreshCw, Search } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createProbeQueue } from '@/utils/probe-queue';
 import {
   ActivityIndicator,
   Animated,
@@ -74,6 +76,9 @@ export default function TvScreen() {
   const probedLibraryRef = useRef<Set<string>>(new Set());
 
   const [librarySyncing, setLibrarySyncing] = useState(false);
+  const [librarySyncProgress, setLibrarySyncProgress] = useState('');
+  const [libraryStreamsSyncing, setLibraryStreamsSyncing] = useState(false);
+  const [libraryStreamsReady, setLibraryStreamsReady] = useState(false);
   const [libraryError, setLibraryError] = useState('');
   const [libraryChannels, setLibraryChannels] = useState<IptvLibraryChannel[]>([]);
   const [countryOptions, setCountryOptions] = useState<FilterPickerOption[]>([]);
@@ -87,6 +92,16 @@ export default function TvScreen() {
   const [tabMetrics, setTabMetrics] = useState<Record<string, { x: number; width: number }>>({});
   const sourceIndicatorY = useRef(new Animated.Value(0)).current;
   const [sourceMetrics, setSourceMetrics] = useState<Record<number, { y: number; height: number }>>({});
+  const m3uProbeQueueRef = useRef<ReturnType<typeof createProbeQueue> | null>(null);
+  if (!m3uProbeQueueRef.current) m3uProbeQueueRef.current = createProbeQueue(4);
+  const m3uProbeQueue = m3uProbeQueueRef.current;
+  const libraryProbeQueueRef = useRef<ReturnType<typeof createProbeQueue> | null>(null);
+  if (!libraryProbeQueueRef.current) libraryProbeQueueRef.current = createProbeQueue(4);
+  const libraryProbeQueue = libraryProbeQueueRef.current;
+  const visibleM3uRef = useRef<Set<string>>(new Set());
+  const visibleLibraryRef = useRef<Set<string>>(new Set());
+  const m3uProbeControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const libraryProbeControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   useEffect(() => {
     const metric = tabMetrics[tab];
@@ -110,6 +125,13 @@ export default function TvScreen() {
       useNativeDriver: true,
     }).start();
   }, [selectedSourceId, sourceMetrics, sourceIndicatorY]);
+
+  useEffect(() => {
+    return () => {
+      for (const controller of m3uProbeControllersRef.current.values()) controller.abort();
+      for (const controller of libraryProbeControllersRef.current.values()) controller.abort();
+    };
+  }, []);
 
   const refreshSource = useCallback(async (source: IptvSource) => {
     setSourceStates((prev) => ({
@@ -224,16 +246,36 @@ export default function TvScreen() {
   const syncLibrary = useCallback(async () => {
     setLibrarySyncing(true);
     setLibraryError('');
+    setLibrarySyncProgress('准备同步频道数据…');
+    setLibraryStreamsReady(false);
     try {
-      await syncIptvLibrary(db);
+      await syncIptvLibraryChannels(db, ({ label, percent }) => {
+        setLibrarySyncProgress(`${label} · ${percent}%`);
+      });
       await loadLibrary();
+      setLibrarySyncing(false);
+      setLibrarySyncProgress('');
+      setLibraryStreamsSyncing(true);
+      setLibrarySyncProgress('正在后台同步流数据…');
+      try {
+        await syncIptvLibraryStreams(db, ({ label, percent }) => {
+          setLibrarySyncProgress(`${label} · ${percent}%`);
+        });
+        setLibraryStreamsReady(true);
+      } catch (error) {
+        console.warn('[TV] Failed to sync library streams:', error);
+      } finally {
+        setLibraryStreamsSyncing(false);
+        setLibrarySyncProgress('');
+      }
     } catch (error) {
       console.warn('[TV] Failed to sync library:', error);
       setLibraryError(error instanceof Error ? error.message : '在线频道库同步失败');
     } finally {
       setLibrarySyncing(false);
+      setLibrarySyncProgress((current) => (libraryStreamsSyncing ? current : ''));
     }
-  }, [db, loadLibrary]);
+  }, [db, libraryStreamsSyncing, loadLibrary]);
 
   useEffect(() => {
     if (tab !== 'library') return;
@@ -322,42 +364,87 @@ export default function TvScreen() {
     />
   ), [isLiveFavorite, libraryChannelStatus, openLibraryChannel, palette, toggleLiveFavorite]);
 
+  const enqueueM3uProbe = useCallback((item: IptvChannel) => {
+    if (probedChannelsRef.current.has(item.url)) return;
+    if (m3uProbeControllersRef.current.has(item.url)) return;
+    if (!visibleM3uRef.current.has(item.url)) return;
+
+    probedChannelsRef.current.add(item.url);
+    const controller = new AbortController();
+    m3uProbeControllersRef.current.set(item.url, controller);
+    setChannelStatus((prev) => ({ ...prev, [item.url]: 'checking' }));
+
+    void m3uProbeQueue.run(async () => {
+      if (controller.signal.aborted) return;
+      const ok = await probeStreamUrl(item.url, controller.signal);
+      if (controller.signal.aborted) return;
+      setChannelStatus((prev) => ({ ...prev, [item.url]: ok ? 'available' : 'unavailable' }));
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setChannelStatus((prev) => ({ ...prev, [item.url]: 'unavailable' }));
+      }
+    }).finally(() => {
+      m3uProbeControllersRef.current.delete(item.url);
+    });
+  }, [m3uProbeQueue]);
+
   const handleChannelViewable = useCallback(({ viewableItems }: { viewableItems: Array<{ item: IptvChannel }> }) => {
+    const visible = new Set(viewableItems.map(({ item }) => item.url));
+    visibleM3uRef.current = visible;
+
     for (const { item } of viewableItems) {
-      if (probedChannelsRef.current.has(item.url)) continue;
-      probedChannelsRef.current.add(item.url);
-      setChannelStatus((prev) => ({ ...prev, [item.url]: 'checking' }));
-      probeStreamUrl(item.url)
-        .then((ok) => {
-          setChannelStatus((prev) => ({ ...prev, [item.url]: ok ? 'available' : 'unavailable' }));
-        })
-        .catch(() => {
-          setChannelStatus((prev) => ({ ...prev, [item.url]: 'unavailable' }));
-        });
+      enqueueM3uProbe(item);
     }
-  }, []);
+
+    for (const [key, controller] of m3uProbeControllersRef.current) {
+      if (!visible.has(key)) controller.abort();
+    }
+  }, [enqueueM3uProbe]);
+
+  const enqueueLibraryProbe = useCallback((item: IptvLibraryChannel) => {
+    if (!libraryStreamsReady) return;
+    if (probedLibraryRef.current.has(item.id)) return;
+    if (libraryProbeControllersRef.current.has(item.id)) return;
+    if (!visibleLibraryRef.current.has(item.id)) return;
+
+    probedLibraryRef.current.add(item.id);
+    const controller = new AbortController();
+    libraryProbeControllersRef.current.set(item.id, controller);
+    setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'checking' }));
+
+    void libraryProbeQueue.run(async () => {
+      if (controller.signal.aborted) return;
+      const streams = await getIptvLibraryStreams(db, item.id);
+      const stream = pickBestStream(streams);
+      if (controller.signal.aborted) return;
+      if (!stream) {
+        setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'unavailable' }));
+        return;
+      }
+      const ok = await probeStreamUrl(stream.url, controller.signal);
+      if (controller.signal.aborted) return;
+      setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: ok ? 'available' : 'unavailable' }));
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'unavailable' }));
+      }
+    }).finally(() => {
+      libraryProbeControllersRef.current.delete(item.id);
+    });
+  }, [db, libraryProbeQueue, libraryStreamsReady]);
 
   const handleLibraryChannelViewable = useCallback(({ viewableItems }: { viewableItems: Array<{ item: IptvLibraryChannel }> }) => {
+    const visible = new Set(viewableItems.map(({ item }) => item.id));
+    visibleLibraryRef.current = visible;
+
     for (const { item } of viewableItems) {
-      if (probedLibraryRef.current.has(item.id)) continue;
-      probedLibraryRef.current.add(item.id);
-      setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'checking' }));
-      void (async () => {
-        try {
-          const streams = await getIptvLibraryStreams(db, item.id);
-          const stream = pickBestStream(streams);
-          if (!stream) {
-            setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'unavailable' }));
-            return;
-          }
-          const ok = await probeStreamUrl(stream.url);
-          setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: ok ? 'available' : 'unavailable' }));
-        } catch {
-          setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'unavailable' }));
-        }
-      })();
+      enqueueLibraryProbe(item);
     }
-  }, [db]);
+
+    for (const [key, controller] of libraryProbeControllersRef.current) {
+      if (!visible.has(key)) controller.abort();
+    }
+  }, [enqueueLibraryProbe]);
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
@@ -383,8 +470,10 @@ export default function TvScreen() {
               <Pressable onPress={() => setDrawerOpen(true)} hitSlop={8} style={styles.headerButton}>
                 <Text style={[styles.headerButtonText, { color: palette.text }]}>筛选</Text>
               </Pressable>
-              <Pressable onPress={syncLibrary} disabled={librarySyncing} hitSlop={8} style={styles.headerButton}>
-                <Text style={[styles.headerButtonText, { color: palette.text }]}>{librarySyncing ? '同步中' : '同步'}</Text>
+              <Pressable onPress={syncLibrary} disabled={librarySyncing || libraryStreamsSyncing} hitSlop={8} style={styles.headerButton}>
+                <Text style={[styles.headerButtonText, { color: palette.text }]}>
+                  {librarySyncing ? '同步中' : libraryStreamsSyncing ? '流同步中' : '同步'}
+                </Text>
               </Pressable>
             </>
           )}
@@ -539,7 +628,7 @@ export default function TvScreen() {
             />
           </View>
           {librarySyncing ? (
-            <ListState text="正在同步频道库..." palette={palette} />
+            <ListState text={librarySyncProgress || '正在同步频道库...'} palette={palette} />
           ) : libraryError ? (
             <ListState text={libraryError} actionLabel="重试" onAction={syncLibrary} palette={palette} />
           ) : (
