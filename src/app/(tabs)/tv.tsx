@@ -8,7 +8,9 @@ import { cacheIptvChannels, fetchIptvChannels, getCachedIptvChannels, probeStrea
 import {
   getIptvLibraryChannels,
   getIptvLibraryFilterOptions,
+  getIptvLibraryStreams,
   getIptvLibrarySyncedAt,
+  pickBestStream,
   syncIptvLibrary,
 } from '@/services/iptv-library';
 import { useRouter } from 'expo-router';
@@ -64,9 +66,11 @@ export default function TvScreen() {
   const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
   const [sourceStates, setSourceStates] = useState<Record<number, SourceChannelState>>({});
   const [channelStatus, setChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
+  const [libraryChannelStatus, setLibraryChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
   const [query, setQuery] = useState('');
   const didInitRef = useRef(false);
   const probedChannelsRef = useRef<Set<string>>(new Set());
+  const probedLibraryRef = useRef<Set<string>>(new Set());
 
   const [librarySyncing, setLibrarySyncing] = useState(false);
   const [libraryError, setLibraryError] = useState('');
@@ -290,10 +294,11 @@ export default function TvScreen() {
       avatar={countryFlag(item.country) || item.name.trim().slice(0, 1) || '台'}
       title={item.name}
       subtitle={item.categories.slice(0, 3).join(' · ') || item.country}
+      status={libraryChannelStatus[item.id]}
       onPress={() => openLibraryChannel(item)}
       palette={palette}
     />
-  ), [openLibraryChannel, palette]);
+  ), [libraryChannelStatus, openLibraryChannel, palette]);
 
   const handleChannelViewable = useCallback(({ viewableItems }: { viewableItems: Array<{ item: IptvChannel }> }) => {
     for (const { item } of viewableItems) {
@@ -309,6 +314,28 @@ export default function TvScreen() {
         });
     }
   }, []);
+
+  const handleLibraryChannelViewable = useCallback(({ viewableItems }: { viewableItems: Array<{ item: IptvLibraryChannel }> }) => {
+    for (const { item } of viewableItems) {
+      if (probedLibraryRef.current.has(item.id)) continue;
+      probedLibraryRef.current.add(item.id);
+      setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'checking' }));
+      void (async () => {
+        try {
+          const streams = await getIptvLibraryStreams(db, item.id);
+          const stream = pickBestStream(streams);
+          if (!stream) {
+            setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'unavailable' }));
+            return;
+          }
+          const ok = await probeStreamUrl(stream.url);
+          setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: ok ? 'available' : 'unavailable' }));
+        } catch {
+          setLibraryChannelStatus((prev) => ({ ...prev, [item.id]: 'unavailable' }));
+        }
+      })();
+    }
+  }, [db]);
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
@@ -483,6 +510,8 @@ export default function TvScreen() {
             <FlatList
               data={libraryChannels}
               keyExtractor={(item) => item.id}
+              viewabilityConfig={CHANNEL_VIEWABILITY}
+              onViewableItemsChanged={handleLibraryChannelViewable}
               renderItem={renderLibraryChannel}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
