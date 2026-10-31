@@ -488,13 +488,13 @@ const styles = StyleSheet.create({
   },
   segment: {
     height: 38,
-    borderRadius: 19,
+    borderRadius: 0,
     padding: 3,
     flexDirection: 'row',
   },
   segmentItem: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -507,7 +507,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 0,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -530,7 +530,7 @@ const styles = StyleSheet.create({
   filterButton: {
     flex: 1,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 0,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 38,
     height: 38,
-    borderRadius: 19,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -605,7 +605,7 @@ const styles = StyleSheet.create({
   stateButton: {
     minHeight: 38,
     paddingHorizontal: 20,
-    borderRadius: 19,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },

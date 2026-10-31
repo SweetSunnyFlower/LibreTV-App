@@ -99,8 +99,8 @@ const styles = StyleSheet.create({
   },
   sheet: {
     height: '70%',
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
     paddingBottom: 20,
   },
   header: {
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 18,
     marginBottom: 8,
     height: 38,
-    borderRadius: 19,
+    borderRadius: 0,
     paddingHorizontal: 14,
     fontSize: 14,
   },
