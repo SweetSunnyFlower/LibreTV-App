@@ -8,10 +8,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
-import { ChevronLeft, List, X } from 'lucide-react-native';
+import { ChevronLeft, List, Star, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { liveFavoriteChannelKey } from '@/utils/live-favorite';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
@@ -37,8 +38,13 @@ export default function LivePlayerScreen() {
   }>();
 
   const kind = firstParam(params.kind);
-  const { addLiveWatchHistory } = useUserData();
+  const {
+    addLiveWatchHistory,
+    isLiveFavorite,
+    toggleLiveFavorite,
+  } = useUserData();
   const [channelName, setChannelName] = useState(firstParam(params.name) ?? '直播');
+  const [channelLogo, setChannelLogo] = useState(firstParam(params.logo) ?? '');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
@@ -114,6 +120,7 @@ export default function LivePlayerScreen() {
           if (!cancelled) {
             setCurrentUrl(uri);
             setChannelName(firstParam(params.name) ?? '直播');
+            setChannelLogo(firstParam(params.logo) ?? '');
             setCurrentSource({ uri });
             retryCountRef.current = 0;
             const sourceId = Number(firstParam(params.sourceId));
@@ -148,6 +155,7 @@ export default function LivePlayerScreen() {
           if (!cancelled) {
             setCurrentUrl(stream.url);
             setChannelName(stream.title || firstParam(params.name) || '直播');
+            setChannelLogo('');
             setCurrentSource(source);
             retryCountRef.current = 0;
             void addLiveWatchHistory({
@@ -217,6 +225,7 @@ export default function LivePlayerScreen() {
       player.play();
       setCurrentUrl(channel.url);
       setChannelName(channel.name);
+      setChannelLogo(channel.logo ?? '');
       setCurrentSource(source);
       retryCountRef.current = 0;
       const sourceId = Number(firstParam(params.sourceId));
@@ -248,6 +257,45 @@ export default function LivePlayerScreen() {
     }
     setReconnecting(false);
   }, [currentSource, player]);
+
+  const favoriteKind = kind === 'library' ? 'library' : 'm3u';
+  const favoriteChannelId = favoriteKind === 'library'
+    ? (firstParam(params.channelId) ?? null)
+    : null;
+  const favoriteKey = liveFavoriteChannelKey(favoriteKind, favoriteChannelId, currentUrl);
+  const favorite = isLiveFavorite(favoriteKind, favoriteKey);
+
+  const handleToggleFavorite = useCallback(async () => {
+    if (!favoriteKey) return;
+    const sourceId = Number(firstParam(params.sourceId));
+    try {
+      await toggleLiveFavorite({
+        kind: favoriteKind,
+        channelId: favoriteChannelId,
+        channelName,
+        channelUrl: currentUrl,
+        sourceId: favoriteKind === 'm3u' && Number.isFinite(sourceId) && sourceId > 0
+          ? sourceId
+          : null,
+        sourceName: favoriteKind === 'm3u'
+          ? (firstParam(params.sourceName) ?? '')
+          : '在线频道库',
+        logo: favoriteKind === 'm3u' ? channelLogo : '',
+      });
+    } catch (error) {
+      console.warn('[LivePlayer] Failed to toggle favorite:', error);
+    }
+  }, [
+    channelLogo,
+    channelName,
+    currentUrl,
+    favoriteChannelId,
+    favoriteKind,
+    favoriteKey,
+    params.sourceId,
+    params.sourceName,
+    toggleLiveFavorite,
+  ]);
 
   const showControls = useCallback(() => {
     setControlsVisible(true);
@@ -332,17 +380,37 @@ export default function LivePlayerScreen() {
         </View>
       ) : null}
 
-      {controlsVisible && kind === 'm3u' ? (
-        <Pressable
-          style={[styles.channelListButton, { top: insets.top + 8 }]}
-          onPress={() => {
-            showControls();
-            setDrawerOpen(true);
-          }}
-          hitSlop={8}
-          accessibilityLabel="频道列表">
-          <List size={24} color="#fff" strokeWidth={2} />
-        </Pressable>
+      {controlsVisible ? (
+        <View style={[styles.topRightControls, { top: insets.top + 8 }]}>
+          <Pressable
+            style={styles.controlButton}
+            onPress={() => {
+              showControls();
+              void handleToggleFavorite();
+            }}
+            hitSlop={8}
+            accessibilityLabel={favorite ? '取消收藏' : '收藏频道'}
+            accessibilityState={{ selected: favorite }}>
+            <Star
+              size={24}
+              color="#fff"
+              strokeWidth={2}
+              fill={favorite ? '#fff' : 'transparent'}
+            />
+          </Pressable>
+          {kind === 'm3u' ? (
+            <Pressable
+              style={styles.controlButton}
+              onPress={() => {
+                showControls();
+                setDrawerOpen(true);
+              }}
+              hitSlop={8}
+              accessibilityLabel="频道列表">
+              <List size={24} color="#fff" strokeWidth={2} />
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
 
       {drawerOpen ? <Pressable style={styles.drawerBackdrop} onPress={() => setDrawerOpen(false)} /> : null}
@@ -525,10 +593,13 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowRadius: 4,
   },
-  channelListButton: {
+  topRightControls: {
     position: 'absolute',
     right: 12,
-    top: 0,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  controlButton: {
     width: 44,
     height: 44,
     alignItems: 'center',
