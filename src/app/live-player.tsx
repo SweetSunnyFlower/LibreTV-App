@@ -8,7 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
-import { ChevronLeft, List, Star, X } from 'lucide-react-native';
+import { ChevronLeft, Heart, List, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -328,6 +328,7 @@ export default function LivePlayerScreen() {
         <VideoView
           player={player}
           nativeControls={false}
+          pointerEvents="none"
           contentFit="contain"
           style={StyleSheet.absoluteFill}
         />
@@ -382,22 +383,6 @@ export default function LivePlayerScreen() {
 
       {controlsVisible ? (
         <View style={[styles.topRightControls, { top: insets.top + 8 }]}>
-          <Pressable
-            style={styles.controlButton}
-            onPress={() => {
-              showControls();
-              void handleToggleFavorite();
-            }}
-            hitSlop={8}
-            accessibilityLabel={favorite ? '取消收藏' : '收藏频道'}
-            accessibilityState={{ selected: favorite }}>
-            <Star
-              size={24}
-              color="#fff"
-              strokeWidth={2}
-              fill={favorite ? '#fff' : 'transparent'}
-            />
-          </Pressable>
           {kind === 'm3u' ? (
             <Pressable
               style={styles.controlButton}
@@ -410,6 +395,24 @@ export default function LivePlayerScreen() {
               <List size={24} color="#fff" strokeWidth={2} />
             </Pressable>
           ) : null}
+          <Pressable
+            style={[styles.controlButton, styles.favoriteButton]}
+            collapsable={false}
+            onPress={() => {
+              showControls();
+              void handleToggleFavorite();
+            }}
+            hitSlop={8}
+            accessibilityLabel={favorite ? '取消收藏' : '收藏频道'}
+            accessibilityState={{ selected: favorite }}>
+            <Heart
+              size={25}
+              color="#fff"
+              strokeWidth={2}
+              fill={favorite ? '#fff' : 'transparent'}
+              pointerEvents="none"
+            />
+          </Pressable>
         </View>
       ) : null}
 
@@ -510,6 +513,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 0,
   },
   loadingOverlay: {
     position: 'absolute',
@@ -576,6 +580,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     maxWidth: SCREEN_WIDTH * 0.72,
+    zIndex: 2,
+    elevation: 2,
   },
   backButton: {
     width: 44,
@@ -596,8 +602,10 @@ const styles = StyleSheet.create({
   topRightControls: {
     position: 'absolute',
     right: 12,
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 8,
+    zIndex: 2,
+    elevation: 2,
   },
   controlButton: {
     width: 44,
@@ -606,6 +614,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.42)',
   },
+  favoriteButton: {
+    backgroundColor: 'transparent',
+  },
   drawerBackdrop: {
     position: 'absolute',
     top: 0,
@@ -613,6 +624,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.42)',
+    zIndex: 3,
+    elevation: 3,
   },
   channelDrawer: {
     position: 'absolute',
@@ -621,6 +634,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: DRAWER_WIDTH,
     backgroundColor: '#111111',
+    zIndex: 4,
+    elevation: 4,
   },
   drawerHeader: {
     height: 56,
