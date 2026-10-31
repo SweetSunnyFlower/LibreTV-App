@@ -318,9 +318,9 @@ export default function TvScreen() {
                       isActive && { backgroundColor: palette.background },
                     ]}
                     onPress={() => selectSource(source)}>
-                    {isActive ? <View style={[styles.sourceSideAccent, { backgroundColor: palette.accent }]} /> : null}
+                    {isActive ? <View style={[styles.sourceSideAccent, { backgroundColor: palette.text }]} /> : null}
                     <Text
-                      style={[styles.sourceSideText, { color: isActive ? palette.accent : palette.text }]}
+                      style={[styles.sourceSideText, { color: isActive ? palette.text : palette.secondaryText }]}
                       numberOfLines={2}>
                       {source.name}
                     </Text>
@@ -586,7 +586,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sourceSideItem: {
-    height: 58,
+    height: 44,
     paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
