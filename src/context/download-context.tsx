@@ -89,16 +89,20 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const schedulePollRefresh = useCallback(() => {
-    if (Platform.OS === 'web' || appStateRef.current !== 'active') return;
-    clearPollTimer();
-    pollTimer.current = setTimeout(() => {
-      pollTimer.current = null;
-      void refreshDownloads().finally(schedulePollRefresh);
-    }, 5000);
+    const schedule = () => {
+      if (Platform.OS === 'web' || appStateRef.current !== 'active') return;
+      clearPollTimer();
+      pollTimer.current = setTimeout(() => {
+        pollTimer.current = null;
+        void refreshDownloads().finally(schedule);
+      }, 5000);
+    };
+    schedule();
   }, [clearPollTimer, refreshDownloads]);
 
   useEffect(() => {
     let mounted = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refreshDownloads sets state only after awaiting SQLite queries, not synchronously
     refreshDownloads().finally(() => {
       if (mounted) setIsHydrating(false);
     });

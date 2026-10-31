@@ -40,6 +40,7 @@ export default function DetailScreen() {
   useEffect(() => {
     abortControllerRef.current?.abort();
     if (!id || !effectiveSiteUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- params can change on the same mounted route; reflect missing-param error state
       setLoading(false);
       setErrorMsg('缺少影片或站点参数，无法加载详情');
       return;
@@ -126,7 +127,7 @@ export default function DetailScreen() {
       <Heart size={20} color="#fff" fill={favoriteActive ? '#fff' : 'transparent'} strokeWidth={2} />
     </Pressable>
   ) : null;
-  const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollY = useState(() => new Animated.Value(0))[0];
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, 80],
     outputRange: [1, 0],

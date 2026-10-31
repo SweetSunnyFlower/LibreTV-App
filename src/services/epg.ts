@@ -7,9 +7,12 @@ import {
 import { fetchJsonWithTimeout, fetchTextWithTimeout } from '@/services/http';
 
 function parseTimestamp(value: string) {
-  const match = /(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(value);
+  const match = /(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\s*([+-])(\d{2}):?(\d{2}))?/.exec(value);
   if (!match) return 0;
-  const [, year, month, day, hour, minute, second] = match;
+  const [, year, month, day, hour, minute, second, sign, offsetHour, offsetMinute] = match;
+  const offsetSeconds = sign
+    ? (sign === '-' ? -1 : 1) * (Number(offsetHour) * 3600 + Number(offsetMinute) * 60)
+    : 0;
   return Math.floor(Date.UTC(
     Number(year),
     Number(month) - 1,
@@ -17,7 +20,7 @@ function parseTimestamp(value: string) {
     Number(hour),
     Number(minute),
     Number(second)
-  ) / 1000);
+  ) / 1000) - offsetSeconds;
 }
 
 function decodeEntities(value: string) {
@@ -194,10 +197,12 @@ async function fetchCntvChannelMap(): Promise<CntvChannelMap> {
   return new Map(Object.entries(FALLBACK_CNTV_MAP));
 }
 
-function formatCntvDate(date: Date) {
-  const year = String(date.getFullYear());
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+// CNTV 的日期参数按北京时间（UTC+8）计算，与设备时区无关。
+export function formatCntvDate(date: Date) {
+  const beijing = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  const year = String(beijing.getUTCFullYear());
+  const month = String(beijing.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(beijing.getUTCDate()).padStart(2, '0');
   return `${year}${month}${day}`;
 }
 

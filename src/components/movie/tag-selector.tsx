@@ -21,7 +21,7 @@ export function TagSelector({ tags, selectedTag, onSelectTag }: TagSelectorProps
   const isDark = themeName === 'dark';
   const textColor = isDark ? '#FAFAFA' : '#111111';
   const mutedColor = isDark ? '#8E8E8E' : '#8A8A8A';
-  const underlineX = useRef(new Animated.Value(0)).current;
+  const underlineX = useState(() => new Animated.Value(0))[0];
   const scrollRef = useRef<ElementRef<typeof ScrollView>>(null);
   const [metrics, setMetrics] = useState<Record<string, TabMetric>>({});
   const selectedIndex = useMemo(() => Math.max(0, tags.indexOf(selectedTag)), [selectedTag, tags]);

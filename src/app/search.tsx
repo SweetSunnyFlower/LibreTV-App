@@ -30,6 +30,7 @@ export default function SearchScreen() {
   const [errorMsg, setErrorMsg] = useState('');
   const requestRef = useRef(new LatestRequest());
 
+  const siteName = site?.name;
   const doSearch = useCallback(async (kw: string, siteUrl: string) => {
     if (!kw.trim()) return;
     const requestId = requestRef.current.next();
@@ -41,7 +42,11 @@ export default function SearchScreen() {
       const data = await searchVod(siteUrl, kw.trim());
       if (!requestRef.current.isCurrent(requestId)) return;
       setResults(data.list ?? []);
-      await addSearchHistory(kw.trim(), siteUrl, site?.name ?? '', data.list?.length ?? 0);
+      try {
+        await addSearchHistory(kw.trim(), siteUrl, siteName ?? '', data.list?.length ?? 0);
+      } catch (historyError) {
+        console.warn('[Search] Failed to save history:', historyError);
+      }
       if (!data.list || data.list.length === 0) {
         setErrorMsg(data.msg || '未找到相关影视');
       }
@@ -55,13 +60,17 @@ export default function SearchScreen() {
         setLoading(false);
       }
     }
-  }, [addSearchHistory, site?.name]);
+  }, [addSearchHistory, siteName]);
 
+  const siteUrl = site?.url;
   useEffect(() => {
-    if (initialKeyword && site) {
-      doSearch(initialKeyword, site.url);
+    if (initialKeyword && siteUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- auto-run search for route keyword when site URL resolves; fetch sets loading before awaiting
+      doSearch(initialKeyword, siteUrl);
     }
-  }, [initialKeyword, site, doSearch]);
+    // site.name changes would recreate doSearch; only re-run when the keyword or site URL changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialKeyword, siteUrl]);
 
   const handleSubmit = useCallback(() => {
     if (keyword.trim() && site) {

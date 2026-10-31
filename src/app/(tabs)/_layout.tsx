@@ -1,7 +1,7 @@
 import { useThemeName } from '@/hooks/use-theme';
 import { Tabs } from 'expo-router';
 import { House, LayoutGrid, Search, Tv, UserRound, type LucideIcon } from 'lucide-react-native';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,7 +25,7 @@ function MinimalTabBar({ state, descriptors, emitter, navigateToTab }: any) {
   const { width } = useWindowDimensions();
   const isDark = themeName === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
-  const progress = useRef(new Animated.Value(state.index)).current;
+  const progress = useState(() => new Animated.Value(state.index))[0];
   const barWidth = width - BAR_HORIZONTAL_PADDING * 2;
   const itemWidth = barWidth / state.routes.length;
 

@@ -23,7 +23,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const isDark = themeName === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
-  const tabProgress = useRef(new Animated.Value(0)).current;
+  const tabProgress = useState(() => new Animated.Value(0))[0];
 
   const [contentType, setContentType] = useState<DoubanContentType>('movie');
   const [tags, setTags] = useState<string[]>([]);
@@ -97,6 +97,7 @@ export default function HomeScreen() {
   }, [contentType, tabProgress]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset list/loading synchronously when contentType changes, before async tag fetch
     setLoading(true);
     setMovies([]);
     setSelectedTag('');
@@ -158,6 +159,7 @@ export default function HomeScreen() {
     pageStart.current = 0;
     hasMore.current = true;
     movieRequestRef.current.invalidate();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch triggered by tag change; loadMovies sets loading state before awaiting
     loadMovies(selectedTag, 0);
   }, [selectedTag, loadMovies]);
 

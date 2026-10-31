@@ -109,6 +109,7 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refreshUserData sets state only after awaiting SQLite queries, not synchronously
     refreshUserData()
       .catch((error) => {
         console.warn('[UserData] Initial load failed:', error);

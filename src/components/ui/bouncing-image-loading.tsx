@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -71,7 +71,7 @@ export function BouncingImageLoading({ imageSize = 32, height = 180, style }: Bo
 }
 
 function LoadingImage({ source, imageSize, index, total }: LoadingImageProps) {
-  const progress = useRef(new Animated.Value(0)).current;
+  const progress = useState(() => new Animated.Value(0))[0];
 
   useEffect(() => {
     const animation = Animated.loop(

@@ -1,6 +1,6 @@
 import { SkeletonBlock, SkeletonGroup } from '@/components/skeletons/skeleton';
 import { useTheme } from '@/hooks/use-theme';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { Image, type ImageContentFit } from 'expo-image';
 
@@ -17,10 +17,12 @@ export function AppImage({ uri, headers, style, contentFit = 'cover', transition
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
+  const [prevUri, setPrevUri] = useState(uri);
+  if (prevUri !== uri) {
+    setPrevUri(uri);
     setLoaded(false);
     setFailed(false);
-  }, [uri]);
+  }
 
   const showSkeleton = !uri || !loaded || failed;
 

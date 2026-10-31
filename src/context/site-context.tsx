@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
 import { getAllSites, setActiveSite as dbSetActiveSite } from '@/services/database';
 import type { CmsSite } from '@/models/site';
@@ -39,6 +39,7 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refreshSites sets state only after awaiting SQLite queries, not synchronously
     refreshSites()
       .catch((error) => {
         console.warn('[Site] Initial load failed:', error);
@@ -59,9 +60,13 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     [db, refreshSites]
   );
 
+  const value = useMemo(
+    () => ({ isHydrating, site, sites, setActiveSite: handleSetActiveSite, refreshSites }),
+    [isHydrating, site, sites, handleSetActiveSite, refreshSites]
+  );
+
   return (
-    <SiteContext.Provider
-      value={{ isHydrating, site, sites, setActiveSite: handleSetActiveSite, refreshSites }}>
+    <SiteContext.Provider value={value}>
       {children}
     </SiteContext.Provider>
   );

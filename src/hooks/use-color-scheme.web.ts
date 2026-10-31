@@ -8,6 +8,7 @@ export function useColorScheme() {
   const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional post-hydration re-render so web static output matches the server ('light') before reading the client scheme
     setHasHydrated(true);
   }, []);
 

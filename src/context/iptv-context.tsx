@@ -37,6 +37,7 @@ export function IptvProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refreshSources sets state only after awaiting SQLite queries, not synchronously
     refreshSources()
       .catch((error) => {
         console.warn('[IPTV] Initial load failed:', error);

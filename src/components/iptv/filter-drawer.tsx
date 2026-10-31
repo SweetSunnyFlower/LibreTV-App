@@ -1,7 +1,7 @@
 import type { FilterPickerOption } from '@/components/iptv/filter-picker';
 import { useThemeName } from '@/hooks/use-theme';
 import { X } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -51,14 +51,22 @@ export function FilterDrawer({
 }) {
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
-  const translateX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
+  const translateX = useState(() => new Animated.Value(DRAWER_WIDTH))[0];
   const [rendered, setRendered] = useState(visible);
   const [pending, setPending] = useState<IptvLibraryFilters>({ country, language, category, includeNsfw });
 
-  useEffect(() => {
+  const syncKey = visible ? JSON.stringify([country, language, category, includeNsfw]) : null;
+  const [prevSyncKey, setPrevSyncKey] = useState<string | null>(null);
+  if (syncKey !== prevSyncKey) {
+    setPrevSyncKey(syncKey);
     if (visible) {
       setRendered(true);
       setPending({ country, language, category, includeNsfw });
+    }
+  }
+
+  useEffect(() => {
+    if (visible) {
       Animated.timing(translateX, {
         toValue: 0,
         duration: 260,

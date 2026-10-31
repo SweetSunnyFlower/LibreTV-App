@@ -1,6 +1,6 @@
 import { CMS_ENDPOINTS } from '@/constants/api';
 import type { CmsApiResponse, VodItem, VodDetail, VodClass, Episode } from '@/models/vod';
-import { fetchJsonWithTimeout } from '@/services/http';
+import { fetchJsonWithTimeout, isAbortError } from '@/services/http';
 
 function splitFirstDollar(segment: string) {
   const index = segment.indexOf('$');
@@ -43,6 +43,7 @@ export async function searchVod(
     return data;
   } catch (err) {
     console.error('[CMS API] Search fetch error:', err);
+    if (isAbortError(err)) throw err;
     throw new Error(`搜索失败：${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -55,6 +56,7 @@ export async function fetchCategories(siteUrl: string, signal?: AbortSignal): Pr
     return data.class ?? [];
   } catch (err) {
     console.error('[CMS API] Categories fetch error:', err);
+    if (isAbortError(err)) throw err;
     throw new Error(`分类加载失败：${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -72,6 +74,7 @@ export async function fetchVodByCategory(
     return await fetchJsonWithTimeout<CmsApiResponse<VodItem>>(url, { signal });
   } catch (err) {
     console.error('[CMS API] Category fetch error:', err);
+    if (isAbortError(err)) throw err;
     throw new Error(`分类内容加载失败：${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -88,6 +91,7 @@ export async function fetchVodDetail(
     return data.list?.[0] ?? null;
   } catch (err) {
     console.error('[CMS API] Detail fetch error:', err);
+    if (isAbortError(err)) throw err;
     throw new Error(`详情加载失败：${err instanceof Error ? err.message : String(err)}`);
   }
 }

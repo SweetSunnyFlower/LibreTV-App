@@ -177,11 +177,11 @@ function PlayerInfoSkeleton() {
 }
 
 function ThreeDotLoading() {
-  const dots = useRef([
+  const [dots] = useState(() => [
     new Animated.Value(0),
     new Animated.Value(0),
     new Animated.Value(0),
-  ]).current;
+  ]);
 
   useEffect(() => {
     const animations = dots.map((dot, index) => Animated.loop(
@@ -281,7 +281,7 @@ export default function PlayerScreen() {
 
   const player = useVideoPlayer(null as VideoSource, () => { });
   const progressSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const controlsOpacity = useRef(new Animated.Value(1)).current;
+  const [controlsOpacity] = useState(() => new Animated.Value(1));
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bufferingResumePendingRef = useRef(false);
   const videoHeightRef = useRef(DEFAULT_VIDEO_HEIGHT);
@@ -324,6 +324,7 @@ export default function PlayerScreen() {
   }, [currentTime, mediaDuration, player.duration]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability -- expo-video 通过属性赋值配置播放器
     player.timeUpdateEventInterval = 1;
     player.bufferOptions = buildBufferOptions(Platform.OS);
   }, [player]);
@@ -355,6 +356,7 @@ export default function PlayerScreen() {
     };
   }, [db]);
 
+  // eslint-disable-next-line react-hooks/refs -- ref 仅在 coordinator 的异步回调中读取，渲染期不读
   const coordinator = useMemo(() => new PlaybackCoordinator({
     resolve: async (url, signal) => {
       if (signal.aborted) throw createAbortError();
@@ -377,6 +379,7 @@ export default function PlayerScreen() {
         return ready;
       },
       seek: (positionSeconds) => {
+        // eslint-disable-next-line react-hooks/immutability -- expo-video 通过赋值 currentTime 实现 seek（回调内执行）
         player.currentTime = positionSeconds;
       },
       play: () => player.play(),
@@ -449,6 +452,7 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (!settingsLoaded) return;
     if (!rawUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 解析流程入口：空地址直接置错误态
       setResolving(false);
       setResolveError('播放地址为空');
       return;
@@ -498,7 +502,7 @@ export default function PlayerScreen() {
 
   const buffering = resolving || status === 'loading';
   const isMediaBuffering = status === 'loading';
-  const realBufferPercent = bufferPercentFor(bufferedPosition, durationRef.current);
+  const realBufferPercent = bufferPercentFor(bufferedPosition, player.duration || mediaDuration);
 
   const updateVideoHeight = useCallback((height: number) => {
     const nextHeight = clampVideoHeight(height);
@@ -569,6 +573,7 @@ export default function PlayerScreen() {
         clearTimeout(controlsTimerRef.current);
         controlsTimerRef.current = null;
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 响应原生播放器状态（缓冲/暂停/出错）强制显示控件
       setControlsVisible(true);
       return;
     }
@@ -632,6 +637,7 @@ export default function PlayerScreen() {
     }, 2000);
   }, [coordinator, currentTime, recordProgressEnabled]);
 
+  // eslint-disable-next-line react-hooks/refs -- ref 仅在手势回调中读写，渲染期不读
   const resizePanResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onStartShouldSetPanResponderCapture: () => true,
@@ -669,6 +675,7 @@ export default function PlayerScreen() {
     let cancelled = false;
     const controller = new AbortController();
     if (!vodId || !siteUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 详情异步加载流程的空参数分支，与 fetch 分支共用状态
       setDetail(null);
       setEpisodes([]);
       setLoadingDetail(false);
@@ -723,16 +730,28 @@ export default function PlayerScreen() {
     ? currentSourceEpisodes[currentEpisodeIndex + 1]
     : null;
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切集后显示控件并启动自动隐藏计时器
     showControlsTemporarily();
   }, [activeEpisode?.url, rawUrl, showControlsTemporarily]);
 
-  const handlePlayEpisode = useCallback(async (episode: Episode) => {
-    if (episode.url === rawUrl) return;
+  const switchingEpisodeRef = useRef(false);
+  useEffect(() => {
+    switchingEpisodeRef.current = false;
+  }, [rawUrl]);
 
-    player.pause();
-    await flushPlaybackProgress();
-    coordinator.cancel();
-    await saveVideoHeight();
+  const handlePlayEpisode = useCallback(async (episode: Episode) => {
+    if (episode.url === rawUrl || switchingEpisodeRef.current) return;
+    switchingEpisodeRef.current = true;
+
+    try {
+      player.pause();
+      await flushPlaybackProgress();
+      coordinator.cancel();
+      await saveVideoHeight();
+    } catch (error) {
+      switchingEpisodeRef.current = false;
+      throw error;
+    }
     router.replace({
       pathname: '/player',
       params: {

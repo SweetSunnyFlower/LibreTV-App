@@ -10,6 +10,17 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+function normalizeSiteUrl(value: string) {
+  const trimmed = value.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  } catch {
+    return null;
+  }
+  return trimmed.replace(/\/+$/, '');
+}
+
 export default function SiteEditScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
@@ -29,6 +40,7 @@ export default function SiteEditScreen() {
 
   useEffect(() => {
     if (!existingSite) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sites load async from context; populate form once the record arrives
     setName(existingSite.name);
     setUrl(existingSite.url);
     setDetail(existingSite.detail);
@@ -48,11 +60,17 @@ export default function SiteEditScreen() {
       return;
     }
 
+    const normalizedUrl = normalizeSiteUrl(url);
+    if (!normalizedUrl) {
+      void dialog.alert('提示', '站点地址无效，请输入以 http:// 或 https:// 开头的地址');
+      return;
+    }
+
     try {
       if (isEdit && existingSite) {
-        await updateSite(db, existingSite.id, url.trim(), name.trim(), detail.trim());
+        await updateSite(db, existingSite.id, normalizedUrl, name.trim(), detail.trim());
       } else {
-        await addSite(db, url.trim(), name.trim(), detail.trim());
+        await addSite(db, normalizedUrl, name.trim(), detail.trim());
       }
       await refreshSites();
       router.back();

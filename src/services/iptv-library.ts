@@ -182,6 +182,13 @@ export async function syncIptvLibraryChannels(
   onProgress?.({ label: '正在同步频道', percent: 78 });
 
   await db.withTransactionAsync(async () => {
+    // 保留已有语言数据：语言由流同步填充，避免流同步失败时被清空
+    const previousLanguages = new Map<string, string>();
+    const previousRows = await db.getAllAsync<{ id: string; languages: string }>(
+      "SELECT id, languages FROM iptv_library_channels WHERE languages != '[]'"
+    );
+    for (const row of previousRows) previousLanguages.set(row.id, row.languages);
+
     await db.execAsync(`
       DELETE FROM iptv_library_channels_fts;
       DELETE FROM iptv_library_channels;
@@ -196,7 +203,7 @@ export async function syncIptvLibraryChannels(
           channel.id,
           channel.name ?? channel.id,
           channel.country ?? '',
-          JSON.stringify([]),
+          previousLanguages.get(channel.id) ?? '[]',
           JSON.stringify(channel.categories ?? []),
           channel.is_nsfw ? 1 : 0,
           JSON.stringify(channel.alt_names ?? [])
@@ -233,10 +240,7 @@ export async function syncIptvLibraryChannels(
       'INSERT OR REPLACE INTO iptv_library_filters (kind, itemsJson) VALUES (?, ?)',
       ['categories', JSON.stringify(categories.map((item) => ({ id: item.id, name: item.name })))]
     );
-    await db.runAsync(
-      'INSERT OR REPLACE INTO iptv_library_meta (id, syncedAt) VALUES (1, ?)',
-      [Math.floor(Date.now() / 1000)]
-    );
+    // syncedAt 仅在流同步成功后写入，保证中途失败时下次会重新同步
   });
 
   onProgress?.({ label: '频道同步完成', percent: 100 });
@@ -314,6 +318,27 @@ export async function getIptvLibrarySyncedAt(db: SQLiteDatabase) {
   return row?.syncedAt ?? 0;
 }
 
+export async function hasIptvLibraryStreams(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ found: number }>('SELECT 1 AS found FROM iptv_library_streams LIMIT 1');
+  return Boolean(row?.found);
+}
+
+function pushArrayFilters(
+  filter: IptvLibraryFilter,
+  clauses: string[],
+  params: Array<string | number>,
+  alias = ''
+) {
+  if (filter.language) {
+    clauses.push(`EXISTS (SELECT 1 FROM json_each(${alias}languages) WHERE value = ?)`);
+    params.push(filter.language);
+  }
+  if (filter.category) {
+    clauses.push(`EXISTS (SELECT 1 FROM json_each(${alias}categories) WHERE value = ?)`);
+    params.push(filter.category);
+  }
+}
+
 export async function getIptvLibraryFilterOptions(db: SQLiteDatabase, kind: string) {
   const row = await db.getFirstAsync<{ itemsJson: string }>(
     'SELECT itemsJson FROM iptv_library_filters WHERE kind = ? LIMIT 1',
@@ -334,7 +359,7 @@ export async function getIptvLibraryChannels(
   pageSize = 200
 ) {
   const clauses: string[] = [];
-  const params: string[] = [];
+  const params: Array<string | number> = [];
 
   if (!filter.includeNsfw) {
     clauses.push('isNsfw = 0');
@@ -348,6 +373,7 @@ export async function getIptvLibraryChannels(
     clauses.push('country = ?');
     params.push(filter.country);
   }
+  pushArrayFilters(filter, clauses, params);
 
   const rows = await db.getAllAsync<ChannelRow>(
     `SELECT * FROM iptv_library_channels WHERE ${clauses.join(' AND ')} ORDER BY name ASC LIMIT ? OFFSET ?`,
@@ -356,19 +382,12 @@ export async function getIptvLibraryChannels(
     page * pageSize
   );
 
-  let channels = rows.map(parseChannel);
-  if (filter.language) {
-    channels = channels.filter((channel) => channel.languages.includes(filter.language!));
-  }
-  if (filter.category) {
-    channels = channels.filter((channel) => channel.categories.includes(filter.category!));
-  }
-  return channels;
+  return rows.map(parseChannel);
 }
 
 function ftsQuery(query: string) {
   const normalized = query.trim().replace(/"/g, '""');
-  return `"${normalized}"*`;
+  return `"${normalized}"`;
 }
 
 export async function searchIptvLibraryChannels(
@@ -378,8 +397,21 @@ export async function searchIptvLibraryChannels(
   page = 0,
   pageSize = 200
 ) {
-  const clauses = ['iptv_library_channels_fts MATCH ?'];
-  const params: Array<string | number> = [ftsQuery(query)];
+  const trimmed = query.trim();
+  if (!trimmed) return getIptvLibraryChannels(db, filter, page, pageSize);
+
+  // trigram 分词要求至少 3 个字符，更短的查询回退到 LIKE
+  const useFts = Array.from(trimmed).length >= 3;
+  const clauses: string[] = [];
+  const params: Array<string | number> = [];
+  if (useFts) {
+    clauses.push('c.id IN (SELECT id FROM iptv_library_channels_fts WHERE iptv_library_channels_fts MATCH ?)');
+    params.push(ftsQuery(trimmed));
+  } else {
+    const like = `%${trimmed.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+    clauses.push("(c.name LIKE ? ESCAPE '\\' OR c.altNames LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
 
   if (!filter.includeNsfw) {
     clauses.push('c.isNsfw = 0');
@@ -388,24 +420,17 @@ export async function searchIptvLibraryChannels(
     clauses.push('c.country = ?');
     params.push(filter.country);
   }
+  pushArrayFilters(filter, clauses, params, 'c.');
 
   const rows = await db.getAllAsync<ChannelRow>(`
     SELECT c.*
     FROM iptv_library_channels c
-    INNER JOIN iptv_library_channels_fts f ON f.id = c.id
     WHERE ${clauses.join(' AND ')}
     ORDER BY c.name ASC
     LIMIT ? OFFSET ?
   `, ...params, pageSize, page * pageSize);
 
-  let channels = rows.map(parseChannel);
-  if (filter.language) {
-    channels = channels.filter((channel) => channel.languages.includes(filter.language!));
-  }
-  if (filter.category) {
-    channels = channels.filter((channel) => channel.categories.includes(filter.category!));
-  }
-  return channels;
+  return rows.map(parseChannel);
 }
 
 export async function getIptvLibraryStreams(db: SQLiteDatabase, channelId: string) {

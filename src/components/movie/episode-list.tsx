@@ -2,7 +2,7 @@ import { TagSelector } from '@/components/movie/tag-selector';
 import { useThemeName } from '@/hooks/use-theme';
 import type { Episode } from '@/models/vod';
 import { Play } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 interface EpisodeListProps {
@@ -45,9 +45,15 @@ export function EpisodeList({ episodes, vodName, activeEpisode, onPlay, onDownlo
   const [activeSource, setActiveSource] = useState(sources[0]?.index ?? 0);
   const activeEpisodeSource = activeEpisode?.sourceIndex ?? 0;
 
-  useEffect(() => {
+  const [prevActiveEpisode, setPrevActiveEpisode] = useState(activeEpisode);
+  const [prevActiveEpisodeSource, setPrevActiveEpisodeSource] = useState(activeEpisodeSource);
+  const [syncedInitial, setSyncedInitial] = useState(false);
+  if (!syncedInitial || prevActiveEpisode !== activeEpisode || prevActiveEpisodeSource !== activeEpisodeSource) {
+    setSyncedInitial(true);
+    setPrevActiveEpisode(activeEpisode);
+    setPrevActiveEpisodeSource(activeEpisodeSource);
     if (activeEpisode) setActiveSource(activeEpisodeSource);
-  }, [activeEpisode, activeEpisodeSource]);
+  }
 
   const visibleEpisodes = sources.length > 1
     ? episodes.filter((episode) => (episode.sourceIndex ?? 0) === activeSource)

@@ -15,6 +15,7 @@ import {
   getIptvLibraryFilterOptions,
   getIptvLibraryStreams,
   getIptvLibrarySyncedAt,
+  hasIptvLibraryStreams,
   searchIptvLibraryChannels,
   pickBestStream,
   syncIptvLibraryChannels,
@@ -98,6 +99,9 @@ export default function TvScreen() {
   const [libraryStreamsSyncing, setLibraryStreamsSyncing] = useState(false);
   const [libraryStreamSyncPercent, setLibraryStreamSyncPercent] = useState(0);
   const [libraryStreamsReady, setLibraryStreamsReady] = useState(false);
+  const librarySyncingRef = useRef(false);
+  const libraryInitRef = useRef(false);
+  const libraryRequestIdRef = useRef(0);
   const [libraryPage, setLibraryPage] = useState(0);
   const [libraryHasMore, setLibraryHasMore] = useState(false);
   const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
@@ -261,6 +265,7 @@ export default function TvScreen() {
   }, [refreshSource, selectedSourceId, sources]);
 
   const loadLibrary = useCallback(async (page = 0, append = false) => {
+    const requestId = ++libraryRequestIdRef.current;
     setLibraryError('');
     if (append) setLibraryLoadingMore(true);
     try {
@@ -279,6 +284,7 @@ export default function TvScreen() {
         getIptvLibraryFilterOptions(db, 'languages'),
         getIptvLibraryFilterOptions(db, 'categories'),
       ]);
+      if (requestId !== libraryRequestIdRef.current) return;
       setLibraryChannels((current) => (append ? [...current, ...channels] : channels));
       setLibraryPage(page);
       setLibraryHasMore(channels.length === 200);
@@ -297,6 +303,7 @@ export default function TvScreen() {
         ]);
       }
     } catch (error) {
+      if (requestId !== libraryRequestIdRef.current) return;
       console.warn('[TV] Failed to load library:', error);
       setLibraryError(error instanceof Error ? error.message : '在线频道库加载失败');
     } finally {
@@ -310,6 +317,8 @@ export default function TvScreen() {
   }, [libraryHasMore, libraryLoadingMore, libraryPage, loadLibrary]);
 
   const syncLibrary = useCallback(async () => {
+    if (librarySyncingRef.current) return;
+    librarySyncingRef.current = true;
     setLibrarySyncing(true);
     setLibraryError('');
     setLibrarySyncProgress('准备同步频道数据…');
@@ -337,6 +346,8 @@ export default function TvScreen() {
           });
       } catch (error) {
         console.warn('[TV] Failed to sync library streams:', error);
+        // 流同步在事务中失败会回滚，旧的流数据仍可用于探测
+        setLibraryStreamsReady(await hasIptvLibraryStreams(db).catch(() => false));
       } finally {
         setLibraryStreamsSyncing(false);
         setLibrarySyncProgress('');
@@ -345,28 +356,36 @@ export default function TvScreen() {
       console.warn('[TV] Failed to sync library:', error);
       setLibraryError(error instanceof Error ? error.message : '在线频道库同步失败');
     } finally {
+      librarySyncingRef.current = false;
       setLibrarySyncing(false);
       setLibrarySyncProgress((current) => (libraryStreamsSyncing ? current : ''));
     }
   }, [db, filterCountry, libraryStreamsSyncing, loadLibrary, loadNowPlaying]);
 
+  // 首次进入在线库：仅执行一次，决定是否需要同步；筛选变化由下方 loadLibrary 依赖驱动的 effect 处理
   useEffect(() => {
-    if (tab !== 'library') return;
-    let cancelled = false;
+    if (tab !== 'library' || libraryInitRef.current) return;
+    libraryInitRef.current = true;
     (async () => {
-      const syncedAt = await getIptvLibrarySyncedAt(db);
-      if (cancelled) return;
-      if (syncedAt === 0) {
-        await syncLibrary();
-      } else {
-        await loadLibrary();
-        void loadNowPlaying();
+      try {
+        const [syncedAt, streamsReady] = await Promise.all([
+          getIptvLibrarySyncedAt(db),
+          hasIptvLibraryStreams(db),
+        ]);
+        setLibraryStreamsReady(streamsReady);
+        if (syncedAt === 0 || !streamsReady) {
+          await syncLibrary();
+        }
+      } catch (error) {
+        console.warn('[TV] Failed to init library:', error);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [tab, loadLibrary, loadNowPlaying, syncLibrary, filterCountry, filterLanguage, filterCategory, includeNsfw, db]);
+  }, [tab, syncLibrary, db]);
+
+  useEffect(() => {
+    if (tab !== 'library') return;
+    void loadNowPlaying();
+  }, [tab, loadNowPlaying]);
 
   useEffect(() => {
     if (tab !== 'library') return;
@@ -475,6 +494,15 @@ export default function TvScreen() {
       }
     }).finally(() => {
       m3uProbeControllersRef.current.delete(item.url);
+      if (controller.signal.aborted) {
+        probedChannelsRef.current.delete(item.url);
+        setChannelStatus((prev) => {
+          if (prev[item.url] !== 'checking') return prev;
+          const next = { ...prev };
+          delete next[item.url];
+          return next;
+        });
+      }
     });
   }, [m3uProbeQueue]);
 
@@ -520,6 +548,15 @@ export default function TvScreen() {
       }
     }).finally(() => {
       libraryProbeControllersRef.current.delete(item.id);
+      if (controller.signal.aborted) {
+        probedLibraryRef.current.delete(item.id);
+        setLibraryChannelStatus((prev) => {
+          if (prev[item.id] !== 'checking') return prev;
+          const next = { ...prev };
+          delete next[item.id];
+          return next;
+        });
+      }
     });
   }, [db, libraryProbeQueue, libraryStreamsReady]);
 

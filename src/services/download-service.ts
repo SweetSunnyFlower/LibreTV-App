@@ -6,10 +6,13 @@ import {
 } from '@/constants/app-settings';
 import type { DownloadRecord, DownloadState, DownloadType } from '@/models/download';
 import {
+  acquireDownloadLease,
   deleteDownload as dbDeleteDownload,
   getAppSetting,
   getDownloadById,
   insertDownload,
+  releaseDownloadLease,
+  renewDownloadLease,
   saveHlsManifest,
   updateDownloadProgress,
   updateDownloadRequestedState,
@@ -17,6 +20,7 @@ import {
 import { notifyDownloadCompletedAsync } from '@/services/download-notification-service';
 import { buildFileDownloadName } from '@/utils/download-path';
 import { runConcurrentWorkers } from '@/utils/concurrent-workers';
+import { selectHlsMasterVariant } from '@/utils/hls-master-playlist';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
 
@@ -55,11 +59,18 @@ type ActiveTask = {
   hlsController?: HlsController;
   stopReason?: TaskStopReason;
   mode?: 'foreground' | 'background';
+  /** 停止时中断在途的分片请求。 */
+  abortController: AbortController;
+  /** 任务整体结束（含状态写入）的 promise，取消/替换时用来等待旧任务退出。 */
+  done?: Promise<void>;
+  /** 释放前台租约；后台 worker 自己管理租约，不设置。 */
+  releaseLease?: () => Promise<void>;
 };
 
 let File: any = null;
 let Paths: any = null;
 let Directory: any = null;
+let DownloadTask: any = null;
 
 if (Platform.OS !== 'web') {
   try {
@@ -67,6 +78,7 @@ if (Platform.OS !== 'web') {
     File = fs.File;
     Paths = fs.Paths;
     Directory = fs.Directory;
+    DownloadTask = fs.DownloadTask;
   } catch {
     // expo-file-system not available
   }
@@ -80,6 +92,13 @@ const HLS_URI_ATTR_RE = /URI="([^"]+)"/g;
 const DOWNLOAD_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const FOREGROUND_PROGRESS_FLUSH_MS = 1000;
 const BACKGROUND_PROGRESS_FLUSH_MS = 2000;
+const FOREGROUND_LEASE_SECONDS = 60;
+const FOREGROUND_LEASE_RENEW_MS = 20_000;
+const STOP_WAIT_TIMEOUT_MS = 5000;
+const MAX_PLAYLIST_DEPTH = 5;
+const HLS_TEMP_SUFFIX = '.part';
+const RESUME_STATE_SUFFIX = '.resume.json';
+let foregroundOwnerCounter = 0;
 
 function generateId() {
   downloadIdCounter += 1;
@@ -281,8 +300,90 @@ function stopActiveTask(id: string, stopReason: TaskStopReason) {
     }
   }
 
+  entry.abortController.abort();
+  void entry.releaseLease?.();
   activeTasks.delete(id);
   return entry;
+}
+
+/** 等待被停止的旧任务真正退出（带超时，避免原生 pause/cancel 不回调时卡死）。 */
+async function waitForStoppedTask(entry: ActiveTask | null) {
+  if (!entry?.done) return;
+  await Promise.race([
+    entry.done.catch(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, STOP_WAIT_TIMEOUT_MS)),
+  ]);
+}
+
+function isEntryCurrent(id: string, entry: ActiveTask) {
+  return activeTasks.get(id) === entry;
+}
+
+function resumeStateFile(dest: any) {
+  return dest?.uri ? fileFromUri(`${dest.uri}${RESUME_STATE_SUFFIX}`) : null;
+}
+
+async function readResumeState(dest: any) {
+  const file = resumeStateFile(dest);
+  if (!file?.exists) return null;
+  try {
+    return JSON.parse(await file.text());
+  } catch {
+    await deleteIfExists(file);
+    return null;
+  }
+}
+
+async function saveResumeState(task: any, dest: any) {
+  const file = resumeStateFile(dest);
+  if (!file) return;
+  try {
+    await writeTextFile(file, JSON.stringify(task.savable()));
+  } catch {
+    // savable() 只在 paused 状态可用；拿不到时下次从头下载。
+  }
+}
+
+/** 创建普通文件下载任务；有持久化的断点数据时从断点继续。 */
+async function createFileDownloadTask(url: string, dest: any, headers: Record<string, string> | undefined, onProgress: (data: { bytesWritten: number; totalBytes: number }) => void) {
+  const saved = await readResumeState(dest);
+  if (saved && DownloadTask?.fromSavable) {
+    try {
+      const task = DownloadTask.fromSavable(saved, { headers, onProgress });
+      return { task, start: () => task.resumeAsync() as Promise<any> };
+    } catch {
+      await deleteIfExists(resumeStateFile(dest));
+    }
+  }
+  const task = File.createDownloadTask(url, dest, { headers, onProgress });
+  return { task, start: () => task.downloadAsync() as Promise<any> };
+}
+
+function createForegroundLease(db: SQLiteDatabase, id: string) {
+  foregroundOwnerCounter += 1;
+  const owner = `foreground:${Date.now()}:${foregroundOwnerCounter}`;
+  const leaseUntil = () => Math.floor(Date.now() / 1000) + FOREGROUND_LEASE_SECONDS;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let released = false;
+  const release = async () => {
+    if (released) return;
+    released = true;
+    if (timer) clearInterval(timer);
+    timer = null;
+    await releaseDownloadLease(db, id, owner).catch(() => undefined);
+  };
+  const acquire = async () => {
+    const acquired = await acquireDownloadLease(db, id, owner, leaseUntil());
+    if (!acquired) {
+      released = true;
+      return false;
+    }
+    timer = setInterval(() => {
+      void renewDownloadLease(db, id, owner, leaseUntil()).catch(() => undefined);
+    }, FOREGROUND_LEASE_RENEW_MS);
+    return true;
+  };
+  return { acquire, release };
 }
 
 function stateForStoppedTask(stopReason?: TaskStopReason): DownloadState | null {
@@ -373,11 +474,24 @@ async function buildHlsManifest(playlistUrl: string, hlsDir: any, outputFile: an
     return fileName;
   };
 
-  const processPlaylist = async (url: string, outputName: string): Promise<string> => {
+  // 已处理（或正在处理）的子 playlist：去重，同时阻断循环引用。
+  const playlistNameByUrl = new Map<string, string>();
+
+  const processNestedPlaylist = (url: string, depth: number) => {
+    const existing = playlistNameByUrl.get(url);
+    if (existing) return Promise.resolve(existing);
+    return processPlaylist(url, nextFileName(url, '.m3u8'), depth + 1);
+  };
+
+  const processPlaylist = async (url: string, outputName: string, depth = 0): Promise<string> => {
+    if (depth > MAX_PLAYLIST_DEPTH) throw new Error('m3u8 嵌套层级过深');
+    playlistNameByUrl.set(url, outputName);
     const res = await fetch(url, { headers });
     if (!res.ok) throw new Error(`m3u8 下载失败：HTTP ${res.status}`);
     const text = await res.text();
-    const lines = text.split(/\r?\n/);
+    const rawLines = text.split(/\r?\n/);
+    // master playlist 只下载一个最高码率变体及其音轨/字幕分组，跳过 I-frame 流。
+    const lines = selectHlsMasterVariant(rawLines) ?? rawLines;
     const rewritten: string[] = [];
 
     for (const line of lines) {
@@ -388,7 +502,7 @@ async function buildHlsManifest(playlistUrl: string, hlsDir: any, outputFile: an
         if (!rawUri || rawUri.startsWith('data:')) continue;
         const absolute = resolvePlaylistUrl(rawUri, url);
         const localName = absolute.toLowerCase().includes('.m3u8')
-          ? await processPlaylist(absolute, nextFileName(absolute, '.m3u8'))
+          ? await processNestedPlaylist(absolute, depth)
           : enqueueResource(absolute, extensionFromUrl(absolute, '.key'));
         nextLine = nextLine.replace(`URI="${rawUri}"`, `URI="${localName}"`);
       }
@@ -396,7 +510,7 @@ async function buildHlsManifest(playlistUrl: string, hlsDir: any, outputFile: an
       if (HLS_SEGMENT_RE.test(line.trim())) {
         const absolute = resolvePlaylistUrl(line.trim(), url);
         nextLine = absolute.toLowerCase().includes('.m3u8')
-          ? await processPlaylist(absolute, nextFileName(absolute, '.m3u8'))
+          ? await processNestedPlaylist(absolute, depth)
           : enqueueResource(absolute);
       }
 
@@ -462,6 +576,8 @@ export async function runHlsDownloadSlice({
   deadlineMs = Infinity,
   listener,
   controller,
+  signal,
+  isCurrent = () => true,
 }: {
   db: SQLiteDatabase;
   record: DownloadRecord;
@@ -471,6 +587,10 @@ export async function runHlsDownloadSlice({
   deadlineMs?: number;
   listener?: DownloadChangeListener;
   controller?: HlsController;
+  /** 任务被停止时 abort，用来中断在途分片请求。 */
+  signal?: AbortSignal;
+  /** 返回 false 说明本切片已被新任务替换/取消，不能再写状态。 */
+  isCurrent?: () => boolean;
 }) {
   if (!isDownloadSupported()) throw new Error('当前平台不支持下载');
   const headers = parseHeaders(record.headersJson);
@@ -488,8 +608,13 @@ export async function runHlsDownloadSlice({
   let deadlineReached = false;
   let lastProgressFlush = 0;
   const resourceController = new AbortController();
+  const abortResources = () => resourceController.abort();
+  if (signal?.aborted) abortResources();
+  signal?.addEventListener('abort', abortResources);
+  const stopped = () => !!controller?.paused || !!signal?.aborted || !isCurrent();
 
   const flushProgress = async (force = false, forcedState?: DownloadState) => {
+    if (!isCurrent()) return;
     const complete = downloaded >= manifest.resources.length;
     if (!force && !shouldFlushProgress(lastProgressFlush, progressFlushMs, complete)) return;
     lastProgressFlush = Date.now();
@@ -503,11 +628,14 @@ export async function runHlsDownloadSlice({
 
   await flushProgress(true, pending.length > 0 ? 'active' : 'completed');
 
-  if (pending.length === 0) return;
+  if (pending.length === 0) {
+    signal?.removeEventListener('abort', abortResources);
+    return;
+  }
   if (!foreground) pending = pending.slice(0, maxSegments);
 
   const worker = async (workerControl: { fail: (error: unknown) => void; failed: () => boolean }) => {
-    while (!workerControl.failed() && !controller?.paused) {
+    while (!workerControl.failed() && !stopped()) {
       if (Date.now() - startedAt >= deadlineMs) {
         deadlineReached = true;
         return;
@@ -521,13 +649,18 @@ export async function runHlsDownloadSlice({
 
       const resourceFile = new File(hlsDir, resource.fileName);
       if (!resourceFile.exists) {
+        // 先写临时文件，成功后再改名：中断留下的半截文件不会被 exists 误判为已完成。
+        const tempFile = new File(hlsDir, `${resource.fileName}${HLS_TEMP_SUFFIX}`);
         try {
-          await File.downloadFileAsync(resource.url, resourceFile, {
+          await File.downloadFileAsync(resource.url, tempFile, {
             headers,
             idempotent: true,
             signal: resourceController.signal,
           });
+          tempFile.rename(resource.fileName);
         } catch (error) {
+          await deleteIfExists(tempFile);
+          if (stopped()) return;
           workerControl.fail(error);
           resourceController.abort();
           return;
@@ -542,13 +675,19 @@ export async function runHlsDownloadSlice({
     }
   };
 
-  await runConcurrentWorkers(Math.min(concurrency, pending.length), worker);
+  try {
+    await runConcurrentWorkers(Math.min(concurrency, pending.length), worker);
+  } finally {
+    signal?.removeEventListener('abort', abortResources);
+  }
 
+  if (!isCurrent()) return;
   const stoppedState = resolveHlsStoppedState(controller, deadlineReached);
   if (stoppedState) {
     await flushProgress(true, stoppedState);
     return;
   }
+  if (signal?.aborted) return;
 
   const finalCount = await countExistingResources(hlsDir, manifest.resources);
   await updateProgress(db, record.id, {
@@ -563,10 +702,13 @@ async function finishFileTask(db: SQLiteDatabase, id: string, entry: ActiveTask,
   try {
     const file = await promise;
     if (entry.stopReason) {
+      // 暂停/切后台/时间片用完：持久化断点数据，下次从断点继续而不是从 0 开始。
+      if (!file && entry.stopReason !== 'cancel') await saveResumeState(entry.task, entry.dest);
       await updateStoppedFileTask(db, id, entry, listener);
       return;
     }
     if (file) {
+      await deleteIfExists(resumeStateFile(entry.dest));
       await updateProgress(db, id, { state: 'completed', lastError: '' }, listener);
     }
   } catch (err) {
@@ -578,10 +720,13 @@ async function finishFileTask(db: SQLiteDatabase, id: string, entry: ActiveTask,
     }
 
     console.error('[Download] Task failed:', err);
+    // 断点数据可能已失效，下次重试从头下载。
+    await deleteIfExists(resumeStateFile(entry.dest));
     const latest = await getDownloadById(db, id);
     await updateProgress(db, id, { state: 'error', lastError: String(err), retryCount: (latest?.retryCount ?? 0) + 1 }, listener);
   } finally {
     removeActiveTaskIfCurrent(id, entry);
+    await entry.releaseLease?.();
   }
 }
 
@@ -630,56 +775,71 @@ export async function startDownloadRecord(db: SQLiteDatabase, vodName: string, e
 
 export async function startOrResumeForegroundDownload(db: SQLiteDatabase, record: DownloadRecord, listener?: DownloadChangeListener) {
   if (!isDownloadSupported()) throw new Error('当前平台不支持下载');
-  stopActiveTask(record.id, 'replace');
+  const previous = stopActiveTask(record.id, 'replace');
+  await waitForStoppedTask(previous);
   await setRequestedState(db, record.id, 'running', record.downloadType === 'hls' ? 'recovering' : 'active', listener);
   const latest = await getDownloadById(db, record.id);
   if (!latest) return;
 
+  // 和后台 worker 共用租约：拿不到说明后台（或另一个前台任务）正在下载，不重复启动。
+  const lease = createForegroundLease(db, latest.id);
+  if (!(await lease.acquire())) return;
+
   if (latest.downloadType === 'hls' || isHlsUrl(latest.url) || latest.destPath.toLowerCase().endsWith('.m3u8')) {
     const hlsController: HlsController = { paused: false };
-    const hlsConcurrency = normalizeHlsConcurrency(await getAppSetting(db, HLS_CONCURRENT_DOWNLOADS_SETTING_KEY));
-    const entry: ActiveTask = { hlsController, dest: fileFromUri(latest.destPath), mode: 'foreground' };
+    const entry: ActiveTask = {
+      hlsController,
+      dest: fileFromUri(latest.destPath),
+      mode: 'foreground',
+      abortController: new AbortController(),
+      releaseLease: lease.release,
+    };
     activeTasks.set(latest.id, entry);
-    runHlsDownloadSlice({
-      db,
-      record: latest,
-      foreground: true,
-      concurrency: hlsConcurrency,
-      listener,
-      controller: hlsController,
-    }).then(() => {
-      removeActiveTaskIfCurrent(latest.id, entry);
-    }).catch(async (err) => {
-      if (entry.stopReason) {
+    const isCurrent = () => isEntryCurrent(latest.id, entry);
+    entry.done = (async () => {
+      try {
+        const hlsConcurrency = normalizeHlsConcurrency(await getAppSetting(db, HLS_CONCURRENT_DOWNLOADS_SETTING_KEY));
+        await runHlsDownloadSlice({
+          db,
+          record: latest,
+          foreground: true,
+          concurrency: hlsConcurrency,
+          listener,
+          controller: hlsController,
+          signal: entry.abortController.signal,
+          isCurrent,
+        });
+      } catch (err) {
+        if (entry.stopReason || !isCurrent()) return;
+        console.error('[Download] HLS task failed:', err);
+        const next = await getDownloadById(db, latest.id);
+        await updateProgress(db, latest.id, { state: 'error', lastError: String(err), retryCount: (next?.retryCount ?? 0) + 1 }, listener);
+      } finally {
         removeActiveTaskIfCurrent(latest.id, entry);
-        return;
+        await lease.release();
       }
-      console.error('[Download] HLS task failed:', err);
-      removeActiveTaskIfCurrent(latest.id, entry);
-      const next = await getDownloadById(db, latest.id);
-      await updateProgress(db, latest.id, { state: 'error', lastError: String(err), retryCount: (next?.retryCount ?? 0) + 1 }, listener);
-    });
+    })();
     return;
   }
 
   const dest = fileFromUri(latest.destPath);
   if (!dest) {
+    await lease.release();
     await updateProgress(db, latest.id, { state: 'error', lastError: '下载文件路径不可用' }, listener);
     return;
   }
 
   let lastProgressFlush = 0;
-  const task = File.createDownloadTask(latest.url, dest, {
-    headers: parseHeaders(latest.headersJson),
-    onProgress: ({ bytesWritten, totalBytes }: { bytesWritten: number; totalBytes: number }) => {
-      if (!shouldFlushProgress(lastProgressFlush, FOREGROUND_PROGRESS_FLUSH_MS, bytesWritten >= totalBytes)) return;
-      lastProgressFlush = Date.now();
-      void updateProgress(db, latest.id, { bytesWritten, totalBytes, state: 'active', lastError: '' }, listener);
-    },
+  const entry: ActiveTask = { dest, mode: 'foreground', abortController: new AbortController(), releaseLease: lease.release };
+  const { task, start } = await createFileDownloadTask(latest.url, dest, parseHeaders(latest.headersJson), ({ bytesWritten, totalBytes }) => {
+    if (!isEntryCurrent(latest.id, entry)) return;
+    if (!shouldFlushProgress(lastProgressFlush, FOREGROUND_PROGRESS_FLUSH_MS, bytesWritten >= totalBytes)) return;
+    lastProgressFlush = Date.now();
+    void updateProgress(db, latest.id, { bytesWritten, totalBytes, state: 'active', lastError: '' }, listener);
   });
-  const entry: ActiveTask = { task, dest, mode: 'foreground' };
+  entry.task = task;
   activeTasks.set(latest.id, entry);
-  void finishFileTask(db, latest.id, entry, task.downloadAsync(), listener);
+  entry.done = finishFileTask(db, latest.id, entry, start(), listener);
 }
 
 export async function pauseDownloadRecord(db: SQLiteDatabase, id: string, listener?: DownloadChangeListener) {
@@ -712,12 +872,15 @@ export async function deleteDownloadedFiles(record: DownloadRecord) {
     await deleteIfExists(record.hlsDirPath ? directoryFromUri(record.hlsDirPath) : dest.parentDirectory);
     return;
   }
+  await deleteIfExists(resumeStateFile(dest));
   await deleteIfExists(dest);
 }
 
 export async function cancelDownloadRecord(db: SQLiteDatabase, record: DownloadRecord, listener?: DownloadChangeListener) {
-  stopActiveTask(record.id, 'cancel');
+  const entry = stopActiveTask(record.id, 'cancel');
   await updateDownloadRequestedState(db, record.id, 'cancelled', 'paused');
+  // 先等在途写入退出再删文件，避免删除后又被旧分片/旧任务写回。
+  await waitForStoppedTask(entry);
   await deleteDownloadedFiles(record);
   await dbDeleteDownload(db, record.id);
   listener?.(null);
@@ -742,30 +905,31 @@ export async function runDownloadInBackground(db: SQLiteDatabase, record: Downlo
   await updateDownloadProgress(db, record.id, { state: 'active', lastError: '' });
 
   let lastProgressFlush = 0;
-  const task = File.createDownloadTask(record.url, dest, {
-    headers: parseHeaders(record.headersJson),
-    onProgress: ({ bytesWritten, totalBytes }: { bytesWritten: number; totalBytes: number }) => {
-      if (!shouldFlushProgress(lastProgressFlush, BACKGROUND_PROGRESS_FLUSH_MS, bytesWritten >= totalBytes)) return;
-      lastProgressFlush = Date.now();
-      void updateDownloadProgress(db, record.id, { bytesWritten, totalBytes, state: 'active', lastError: '' });
-    },
+  const { task, start } = await createFileDownloadTask(record.url, dest, parseHeaders(record.headersJson), ({ bytesWritten, totalBytes }) => {
+    if (!shouldFlushProgress(lastProgressFlush, BACKGROUND_PROGRESS_FLUSH_MS, bytesWritten >= totalBytes)) return;
+    lastProgressFlush = Date.now();
+    void updateDownloadProgress(db, record.id, { bytesWritten, totalBytes, state: 'active', lastError: '' });
   });
-  const entry: ActiveTask = { task, dest, mode: 'background' };
-  const taskPromise = task.downloadAsync();
+  const entry: ActiveTask = { task, dest, mode: 'background', abortController: new AbortController() };
+  const taskPromise = start();
 
   // Expo background task 给 JS 的执行窗口很短。普通文件不像 HLS 可以天然按分片切片，
-  // 所以这里主动在 deadline 到期时暂停任务并正常返回；这只是时间片用完，不是下载失败。
-  const deadlinePromise = new Promise<null>((resolve) => {
-    const timer = setTimeout(() => {
-      markEntryStopped(entry, 'background-deadline');
-      try { task.pause(); } catch { /* ignore */ }
-      resolve(null);
-    }, Math.max(0, deadlineMs));
-
-    taskPromise.finally(() => clearTimeout(timer)).catch(() => {
-      // 真正的错误由 finishFileTask 统一处理，这里只负责清理 deadline timer。
-    });
+  // 所以这里主动在 deadline 到期时暂停任务；pause 完成后 taskPromise 以 null resolve，
+  // finishFileTask 会把断点数据持久化，下一个时间片从断点继续。
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  const deadlineTimer = setTimeout(() => {
+    markEntryStopped(entry, 'background-deadline');
+    try { task.pause(); } catch { /* ignore */ }
+  }, Math.max(0, deadlineMs));
+  // 兜底：原生 pause 迟迟不回调时也要按时返回，避免超出系统给的后台时间。
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeoutTimer = setTimeout(() => resolve(null), Math.max(0, deadlineMs) + STOP_WAIT_TIMEOUT_MS);
   });
 
-  await finishFileTask(db, record.id, entry, Promise.race([taskPromise, deadlinePromise]));
+  try {
+    await finishFileTask(db, record.id, entry, Promise.race([taskPromise, timeoutPromise]));
+  } finally {
+    clearTimeout(deadlineTimer);
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+  }
 }

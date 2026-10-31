@@ -51,8 +51,10 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
   const [current, setCurrent] = useState<DialogRequest | null>(null);
   const currentRef = useRef<DialogRequest | null>(null);
   const queueRef = useRef<DialogRequest[]>([]);
+  const closingRef = useRef(false);
 
   const showNext = useCallback(() => {
+    closingRef.current = false;
     const next = queueRef.current.shift() ?? null;
     currentRef.current = next;
     setCurrent(next);
@@ -61,7 +63,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
   const showDialog = useCallback((options: ShowDialogOptions) => {
     return new Promise<string | undefined>((resolve) => {
       const request = { options, resolve };
-      if (currentRef.current) {
+      if (currentRef.current || closingRef.current) {
         queueRef.current.push(request);
         return;
       }
@@ -77,6 +79,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
     const shouldClose = button?.closeOnPress !== false;
 
     if (shouldClose) {
+      closingRef.current = true;
       currentRef.current = null;
       setCurrent(null);
       request.resolve(button?.text);

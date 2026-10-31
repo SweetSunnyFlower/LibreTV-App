@@ -1,5 +1,6 @@
 import type { DownloadRecord } from '@/models/download';
 import * as Notifications from 'expo-notifications';
+import { AndroidImportance } from 'expo-notifications';
 import { Platform } from 'react-native';
 
 const DOWNLOAD_NOTIFICATION_CHANNEL_ID = 'downloads';
@@ -20,7 +21,7 @@ async function ensureAndroidChannelAsync() {
   if (Platform.OS !== 'android') return;
   await Notifications.setNotificationChannelAsync(DOWNLOAD_NOTIFICATION_CHANNEL_ID, {
     name: '下载通知',
-    importance: Notifications.AndroidImportance.DEFAULT,
+    importance: AndroidImportance.DEFAULT,
     vibrationPattern: [0, 180, 120, 180],
     lightColor: '#E53935',
   });

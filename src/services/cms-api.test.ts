@@ -28,4 +28,13 @@ describe('parseEpisodes', () => {
 
     await expect(searchVod('https://site.example', '测试')).rejects.toThrow('搜索失败');
   });
+
+  it('rethrows abort errors unchanged so callers can detect cancellation', async () => {
+    const abortError = new DOMException('Aborted', 'AbortError');
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw abortError;
+    }));
+
+    await expect(searchVod('https://site.example', '测试')).rejects.toMatchObject({ name: 'AbortError' });
+  });
 });

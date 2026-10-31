@@ -100,6 +100,44 @@ async function ensureColumn(db: SQLiteDatabase, table: string, column: string, d
   existingColumns.add(column);
 }
 
+async function migrateIptvLibraryFts(db: SQLiteDatabase) {
+  const existing = await db.getFirstAsync<{ sql: string }>(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'iptv_library_channels_fts' LIMIT 1"
+  );
+  if (existing?.sql && /trigram/i.test(existing.sql)) return;
+
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      DROP TABLE IF EXISTS iptv_library_channels_fts;
+      CREATE VIRTUAL TABLE iptv_library_channels_fts USING fts5(
+        id UNINDEXED,
+        name,
+        altNames,
+        tokenize = 'trigram'
+      );
+    `);
+    const rows = await db.getAllAsync<{ id: string; name: string; altNames: string }>(
+      'SELECT id, name, altNames FROM iptv_library_channels'
+    );
+    if (rows.length === 0) return;
+    const insertFts = await db.prepareAsync(
+      'INSERT INTO iptv_library_channels_fts (id, name, altNames) VALUES (?, ?, ?)'
+    );
+    try {
+      for (const row of rows) {
+        let altNames: string[] = [];
+        try {
+          const parsed = JSON.parse(row.altNames);
+          if (Array.isArray(parsed)) altNames = parsed.map(String);
+        } catch {}
+        await insertFts.executeAsync(row.id, row.name, altNames.join(' '));
+      }
+    } finally {
+      await insertFts.finalizeAsync();
+    }
+  });
+}
+
 export async function migrateDb(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
@@ -131,11 +169,6 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       categories TEXT NOT NULL DEFAULT '[]',
       isNsfw INTEGER NOT NULL DEFAULT 0,
       altNames TEXT NOT NULL DEFAULT '[]'
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS iptv_library_channels_fts USING fts5(
-      id UNINDEXED,
-      name,
-      altNames
     );
     CREATE TABLE IF NOT EXISTS iptv_library_streams (
       channel TEXT NOT NULL,
@@ -290,6 +323,8 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
   const existingLiveHistoryColumns = new Set(liveHistoryColumns.map((column) => column.name));
   await ensureColumn(db, 'live_watch_history', 'kind', `TEXT NOT NULL DEFAULT 'm3u'`, existingLiveHistoryColumns);
   await ensureColumn(db, 'live_watch_history', 'channelId', 'TEXT', existingLiveHistoryColumns);
+
+  await migrateIptvLibraryFts(db);
 
   await db.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_downloads_runnable ON downloads(requestedState, state, leaseUntil, createdAt);
@@ -579,7 +614,7 @@ export async function getRunnableDownloads(db: SQLiteDatabase, limit = 1) {
   const rows = await db.getAllAsync<DownloadRow>(
     `SELECT * FROM downloads
      WHERE requestedState = 'running'
-       AND state != 'completed'
+       AND state NOT IN ('completed', 'error')
        AND (leaseOwner = '' OR leaseUntil <= ?)
      ORDER BY downloadType = 'hls' DESC, updatedAt ASC
      LIMIT ?`,
@@ -592,8 +627,16 @@ export async function acquireDownloadLease(db: SQLiteDatabase, id: string, owner
   const now = Math.floor(Date.now() / 1000);
   const result = await db.runAsync(
     `UPDATE downloads SET leaseOwner = ?, leaseUntil = ?, updatedAt = strftime("%s","now")
-     WHERE id = ? AND requestedState = 'running' AND state != 'completed' AND (leaseOwner = '' OR leaseUntil <= ?)`,
+     WHERE id = ? AND requestedState = 'running' AND state NOT IN ('completed', 'error') AND (leaseOwner = '' OR leaseUntil <= ?)`,
     [owner, leaseUntil, id, now]
+  );
+  return result.changes > 0;
+}
+
+export async function renewDownloadLease(db: SQLiteDatabase, id: string, owner: string, leaseUntil: number) {
+  const result = await db.runAsync(
+    'UPDATE downloads SET leaseUntil = ? WHERE id = ? AND leaseOwner = ?',
+    [leaseUntil, id, owner]
   );
   return result.changes > 0;
 }

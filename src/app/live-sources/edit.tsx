@@ -28,6 +28,7 @@ export default function LiveSourceEditScreen() {
 
   useEffect(() => {
     if (!existingSource) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sources load async from context; populate form once the record arrives
     setName(existingSource.name);
     setUrl(existingSource.url);
   }, [existingSource]);
@@ -45,6 +46,17 @@ export default function LiveSourceEditScreen() {
     const trimmedUrl = url.trim();
     if (!trimmedName || !trimmedUrl) {
       void dialog.alert('提示', '请填写直播源名称和地址');
+      return;
+    }
+
+    let parsedUrl: URL | null = null;
+    try {
+      parsedUrl = new URL(trimmedUrl);
+    } catch {
+      parsedUrl = null;
+    }
+    if (!parsedUrl || (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:')) {
+      void dialog.alert('提示', '请输入有效的 http 或 https 地址');
       return;
     }
 

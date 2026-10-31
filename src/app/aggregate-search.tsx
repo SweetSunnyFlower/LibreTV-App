@@ -109,6 +109,7 @@ export default function AggregateSearchScreen() {
 
   useEffect(() => {
     if (initialKeyword) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- auto-run search for route keyword; fetch sets loading before awaiting
       void doAggregateSearch(initialKeyword);
     }
   }, [doAggregateSearch, initialKeyword]);

@@ -56,13 +56,28 @@ export default function LivePlayerScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerChannels, setDrawerChannels] = useState<IptvChannel[]>([]);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const drawerX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
+  const [drawerX] = useState(() => new Animated.Value(DRAWER_WIDTH));
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
   const libraryStreamsRef = useRef<IptvLibraryStream[]>([]);
   const libraryStreamIndexRef = useRef(0);
+  // 每次加载/切台递增；异步结果返回时若代数已变化则丢弃。
+  const loadGenRef = useRef(0);
+  // 串行化 replaceAsync，保证最后发起的源最后生效。
+  const replaceChainRef = useRef<Promise<void>>(Promise.resolve());
+  const channelNameRef = useRef(channelName);
+  useEffect(() => {
+    channelNameRef.current = channelName;
+  }, [channelName]);
 
   const player = useVideoPlayer(null, () => {});
+  const replaceSource = useCallback((source: VideoSource) => {
+    const run = replaceChainRef.current
+      .catch(() => {})
+      .then(() => player.replaceAsync(source));
+    replaceChainRef.current = run;
+    return run;
+  }, [player]);
   const { status } = useEvent(player, 'statusChange', {
     status: player.status,
     error: undefined,
@@ -109,7 +124,10 @@ export default function LivePlayerScreen() {
   }, [db, kind, params.sourceId, params.sourceUrl]);
 
   useEffect(() => {
+    const gen = ++loadGenRef.current;
     let cancelled = false;
+    const isStale = () => cancelled || gen !== loadGenRef.current;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 异步加载开始前置 loading，随后 await 换源
     setLoading(true);
     setErrorMsg('');
 
@@ -120,9 +138,9 @@ export default function LivePlayerScreen() {
           libraryStreamIndexRef.current = 0;
           const uri = firstParam(params.url) ?? '';
           if (!uri) throw new Error('缺少播放地址');
-          if (cancelled) return;
-          await player.replaceAsync({ uri });
-          if (!cancelled) {
+          if (isStale()) return;
+          await replaceSource({ uri });
+          if (!isStale()) {
             setCurrentUrl(uri);
             setChannelName(firstParam(params.name) ?? '直播');
             setChannelLogo(firstParam(params.logo) ?? '');
@@ -153,14 +171,12 @@ export default function LivePlayerScreen() {
           if (stream.referrer) headers.Referer = stream.referrer;
           if (stream.userAgent) headers['User-Agent'] = stream.userAgent;
 
-          if (cancelled) return;
+          if (isStale()) return;
           const source: VideoSource = Object.keys(headers).length > 0
             ? { uri: stream.url, headers }
             : { uri: stream.url };
-          await player.replaceAsync(
-            source
-          );
-          if (!cancelled) {
+          await replaceSource(source);
+          if (!isStale()) {
             setCurrentUrl(stream.url);
             setChannelName(stream.title || firstParam(params.name) || '直播');
             setChannelLogo('');
@@ -178,13 +194,13 @@ export default function LivePlayerScreen() {
           }
         }
 
-        if (!cancelled) {
+        if (!isStale()) {
           player.play();
           setLoading(false);
           setPlaybackFailed(false);
         }
       } catch (error) {
-        if (!cancelled) {
+        if (!isStale()) {
           setErrorMsg(error instanceof Error ? error.message : '播放失败');
           setLoading(false);
         }
@@ -195,12 +211,13 @@ export default function LivePlayerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [addLiveWatchHistory, db, kind, params.channelId, params.name, params.logo, params.sourceId, params.sourceName, params.url, player, retryNonce]);
+  }, [addLiveWatchHistory, db, kind, params.channelId, params.name, params.logo, params.sourceId, params.sourceName, params.url, player, replaceSource, retryNonce]);
 
   const showLoading = loading || (!isPlaying && status !== 'error' && !errorMsg);
 
   useEffect(() => {
     if (status !== 'error' || !currentSource || errorMsg) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 响应原生播放器 status 变化（外部系统）
       if (status !== 'error') setPlaybackFailed(false);
       return;
     }
@@ -213,28 +230,29 @@ export default function LivePlayerScreen() {
         return;
       }
 
-      const stream = libraryStreamsRef.current[nextIndex];
-      const headers: Record<string, string> = {};
-      if (stream.referrer) headers.Referer = stream.referrer;
-      if (stream.userAgent) headers['User-Agent'] = stream.userAgent;
-      const source: VideoSource = Object.keys(headers).length > 0
-        ? { uri: stream.url, headers }
-        : { uri: stream.url };
-
-      libraryStreamIndexRef.current = nextIndex;
-      setPlaybackFailed(false);
-      setReconnecting(true);
-      const timer = setTimeout(async () => {
+      const gen = loadGenRef.current;
+      const streams = libraryStreamsRef.current;
+      const tryStream = async (index: number): Promise<void> => {
+        const stream = streams[index];
+        const headers: Record<string, string> = {};
+        if (stream.referrer) headers.Referer = stream.referrer;
+        if (stream.userAgent) headers['User-Agent'] = stream.userAgent;
+        const source: VideoSource = Object.keys(headers).length > 0
+          ? { uri: stream.url, headers }
+          : { uri: stream.url };
+        libraryStreamIndexRef.current = index;
         try {
-          await player.replaceAsync(source);
+          await replaceSource(source);
+          if (gen !== loadGenRef.current) return;
           player.play();
+          const name = stream.title || channelNameRef.current;
           setCurrentUrl(stream.url);
-          setChannelName(stream.title || channelName);
+          setChannelName(name);
           setCurrentSource(source);
           void addLiveWatchHistory({
             kind: 'library',
             channelId: firstParam(params.channelId) ?? null,
-            channelName: stream.title || channelName,
+            channelName: name,
             channelUrl: stream.url,
             sourceId: null,
             sourceName: '在线频道库',
@@ -242,8 +260,19 @@ export default function LivePlayerScreen() {
           });
         } catch (error) {
           console.warn('[LivePlayer] Library stream fallback failed:', error);
+          if (gen !== loadGenRef.current) return;
+          if (index + 1 < streams.length) return tryStream(index + 1);
+          setPlaybackFailed(true);
         }
-        setReconnecting(false);
+      };
+
+      libraryStreamIndexRef.current = nextIndex;
+      setPlaybackFailed(false);
+      setReconnecting(true);
+      const timer = setTimeout(() => {
+        void tryStream(nextIndex).finally(() => {
+          if (gen === loadGenRef.current) setReconnecting(false);
+        });
       }, 1400);
       return () => clearTimeout(timer);
     }
@@ -258,7 +287,7 @@ export default function LivePlayerScreen() {
     retryCountRef.current += 1;
     const timer = setTimeout(async () => {
       try {
-        await player.replaceAsync(currentSource);
+        await replaceSource(currentSource);
         player.play();
       } catch (error) {
         console.warn('[LivePlayer] Retry failed:', error);
@@ -266,14 +295,16 @@ export default function LivePlayerScreen() {
       setReconnecting(false);
     }, 1600);
     return () => clearTimeout(timer);
-  }, [status, currentSource, errorMsg, player, kind, addLiveWatchHistory, channelName, params.channelId]);
+  }, [status, currentSource, errorMsg, player, kind, addLiveWatchHistory, params.channelId, replaceSource]);
 
   const switchChannel = useCallback(async (channel: IptvChannel) => {
     setDrawerOpen(false);
     setErrorMsg('');
+    const gen = ++loadGenRef.current;
     try {
       const source: VideoSource = { uri: channel.url };
-      await player.replaceAsync(source);
+      await replaceSource(source);
+      if (gen !== loadGenRef.current) return;
       player.play();
       setCurrentUrl(channel.url);
       setChannelName(channel.name);
@@ -292,9 +323,10 @@ export default function LivePlayerScreen() {
       });
     } catch (error) {
       console.warn('[LivePlayer] Failed to switch channel:', error);
+      if (gen !== loadGenRef.current) return;
       setErrorMsg(error instanceof Error ? error.message : '切换失败');
     }
-  }, [addLiveWatchHistory, params.sourceId, params.sourceName, player]);
+  }, [addLiveWatchHistory, params.sourceId, params.sourceName, player, replaceSource]);
 
   const retryPlayback = useCallback(async () => {
     if (!currentSource) return;
@@ -302,13 +334,13 @@ export default function LivePlayerScreen() {
     setPlaybackFailed(false);
     setReconnecting(true);
     try {
-      await player.replaceAsync(currentSource);
+      await replaceSource(currentSource);
       player.play();
     } catch (error) {
       console.warn('[LivePlayer] Manual retry failed:', error);
     }
     setReconnecting(false);
-  }, [currentSource, player]);
+  }, [currentSource, player, replaceSource]);
 
   const favoriteKind = kind === 'library' ? 'library' : 'm3u';
   const favoriteChannelId = favoriteKind === 'library'
@@ -359,7 +391,11 @@ export default function LivePlayerScreen() {
   }, []);
 
   useEffect(() => {
-    showControls();
+    // controlsVisible 初始即为 true，挂载时只需启动自动隐藏计时器。
+    controlsTimerRef.current = setTimeout(() => {
+      setControlsVisible(false);
+      controlsTimerRef.current = null;
+    }, 5000);
     return () => {
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
     };
@@ -499,11 +535,11 @@ export default function LivePlayerScreen() {
 }
 
 function DotsLoading() {
-  const dots = useRef([
+  const [dots] = useState(() => [
     new Animated.Value(0),
     new Animated.Value(0),
     new Animated.Value(0),
-  ]).current;
+  ]);
 
   useEffect(() => {
     const animations = dots.map((dot, index) => Animated.loop(

@@ -5,12 +5,14 @@ import { useIptv } from '@/context/iptv-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { IptvSource } from '@/models/iptv';
 import { deleteIptvSource as dbDeleteIptvSource } from '@/services/database';
-import { probeIptvSource } from '@/services/iptv';
+import { fetchTextWithTimeout } from '@/services/http';
+import { parseM3U } from '@/utils/iptv';
+import { createProbeQueue } from '@/utils/probe-queue';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { Plus, Tv, Trash2 } from 'lucide-react-native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export default function LiveSourcesScreen() {
@@ -22,20 +24,43 @@ export default function LiveSourcesScreen() {
   const dialog = useAppDialog();
   const [availability, setAvailability] = useState<Record<number, { status: 'checking' | 'available' | 'unavailable'; count?: number }>>({});
 
+  // 记录已检测过的 sourceId -> url，仅对新增或地址变化的源重新检测
+  const checkedUrlsRef = useRef<Map<number, string>>(new Map());
+
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const queue = createProbeQueue(3);
+    const checked = checkedUrlsRef.current;
+    const pending = new Map<number, string>();
+    const ids = new Set(sources.map((source) => source.id));
+    for (const id of checked.keys()) {
+      if (!ids.has(id)) checked.delete(id);
+    }
+
     for (const source of sources) {
+      if (checked.get(source.id) === source.url) continue;
+      checked.set(source.id, source.url);
       setAvailability((prev) => ({ ...prev, [source.id]: { status: 'checking' } }));
-      probeIptvSource(source.url)
-        .then((count) => {
-          if (!cancelled) setAvailability((prev) => ({ ...prev, [source.id]: { status: 'available', count } }));
-        })
-        .catch(() => {
-          if (!cancelled) setAvailability((prev) => ({ ...prev, [source.id]: { status: 'unavailable' } }));
-        });
+      void queue.run(async () => {
+        if (controller.signal.aborted) return;
+        try {
+          const content = await fetchTextWithTimeout(source.url, { signal: controller.signal }, 10000);
+          const count = parseM3U(content).length;
+          if (!controller.signal.aborted) setAvailability((prev) => ({ ...prev, [source.id]: { status: 'available', count } }));
+        } catch {
+          if (!controller.signal.aborted) setAvailability((prev) => ({ ...prev, [source.id]: { status: 'unavailable' } }));
+        }
+      }).finally(() => {
+        pending.delete(source.id);
+      });
+      pending.set(source.id, source.url);
     }
     return () => {
-      cancelled = true;
+      controller.abort();
+      // 被取消的检测下次需要重新执行
+      for (const [id, url] of pending) {
+        if (checked.get(id) === url) checked.delete(id);
+      }
     };
   }, [sources]);
 
