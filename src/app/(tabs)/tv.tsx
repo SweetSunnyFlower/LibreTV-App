@@ -395,6 +395,7 @@ export default function TvScreen() {
       subtitle={item.altNames.length > 0 ? item.altNames.join(' · ') : (item.categories.slice(0, 3).join(' · ') || item.country)}
       status={libraryChannelStatus[item.id]}
       favorite={isLiveFavorite('library', item.id)}
+      nsfw={item.isNsfw}
       onToggleFavorite={() => {
         void toggleLiveFavorite({
           kind: 'library',
@@ -746,6 +747,7 @@ function ChannelRow({
   subtitle,
   status,
   favorite,
+  nsfw,
   onToggleFavorite,
   onPress,
   palette,
@@ -755,6 +757,7 @@ function ChannelRow({
   subtitle?: string;
   status?: 'checking' | 'available' | 'unavailable';
   favorite?: boolean;
+  nsfw?: boolean;
   onToggleFavorite?: () => void;
   onPress: () => void;
   palette: typeof lightPalette;
@@ -781,6 +784,9 @@ function ChannelRow({
         {subtitle ? <Text style={[styles.channelMeta, { color: palette.secondaryText }]} numberOfLines={1}>{subtitle}</Text> : null}
       </View>
       {status ? <View style={[styles.statusDot, { backgroundColor: statusColor }]} /> : null}
+      {nsfw ? (
+        <Text style={[styles.nsfwBadge, { color: palette.danger, borderColor: palette.danger }]}>NSFW</Text>
+      ) : null}
       {onToggleFavorite ? (
         <Pressable onPress={onToggleFavorite} hitSlop={6}>
           <Heart
@@ -1047,6 +1053,14 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
+  },
+  nsfwBadge: {
+    marginLeft: 8,
+    paddingHorizontal: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '800',
   },
   listState: {
     flex: 1,
