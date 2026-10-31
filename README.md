@@ -3,16 +3,18 @@
 | 首页 | 分类 | 搜索 |
 | :---: | :---: | :---: |
 | <a href="./docs/images/01-home.png"><img src="./docs/images/01-home.png" alt="首页" width="260"></a> | <a href="./docs/images/02-categories.png"><img src="./docs/images/02-categories.png" alt="分类" width="260"></a> | <a href="./docs/images/03-search.png"><img src="./docs/images/03-search.png" alt="搜索" width="260"></a> |
-| **下载** | **我的** | **我的收藏** |
-| <a href="./docs/images/04-downloads.png"><img src="./docs/images/04-downloads.png" alt="下载" width="260"></a> | <a href="./docs/images/05-my.png"><img src="./docs/images/05-my.png" alt="我的" width="260"></a> | <a href="./docs/images/06-favorites.png"><img src="./docs/images/06-favorites.png" alt="我的收藏" width="260"></a> |
-| **搜索历史** | **观看历史** | **观看历史详情** |
-| <a href="./docs/images/07-search-history.png"><img src="./docs/images/07-search-history.png" alt="搜索历史" width="260"></a> | <a href="./docs/images/08-watch-history.png"><img src="./docs/images/08-watch-history.png" alt="观看历史" width="260"></a> | <a href="./docs/images/09-watch-history-folder.png"><img src="./docs/images/09-watch-history-folder.png" alt="观看历史详情" width="260"></a> |
-| **我的下载** | **设置** | **搜索结果** |
-| <a href="./docs/images/10-my-downloads.png"><img src="./docs/images/10-my-downloads.png" alt="我的下载" width="260"></a> | <a href="./docs/images/11-settings.png"><img src="./docs/images/11-settings.png" alt="设置" width="260"></a> | <a href="./docs/images/12-search-results.png"><img src="./docs/images/12-search-results.png" alt="搜索结果" width="260"></a> |
-| **影视详情** | **播放器** | **全站点搜索** |
-| <a href="./docs/images/13-detail.png"><img src="./docs/images/13-detail.png" alt="影视详情" width="260"></a> | <a href="./docs/images/14-player.png"><img src="./docs/images/14-player.png" alt="播放器" width="260"></a> | <a href="./docs/images/15-aggregate-search.png"><img src="./docs/images/15-aggregate-search.png" alt="全站点搜索" width="260"></a> |
-| **站点管理** | **添加站点** | **下载详情** |
-| <a href="./docs/images/16-sites.png"><img src="./docs/images/16-sites.png" alt="站点管理" width="260"></a> | <a href="./docs/images/17-site-edit.png"><img src="./docs/images/17-site-edit.png" alt="添加站点" width="260"></a> | <a href="./docs/images/18-download-folder.png"><img src="./docs/images/18-download-folder.png" alt="下载详情" width="260"></a> |
+| **电视 · 我的直播源** | **在线频道库** | **我的** |
+| <a href="./docs/images/04-tv.png"><img src="./docs/images/04-tv.png" alt="电视 · 我的直播源" width="260"></a> | <a href="./docs/images/05-tv-library.png"><img src="./docs/images/05-tv-library.png" alt="在线频道库" width="260"></a> | <a href="./docs/images/06-my.png"><img src="./docs/images/06-my.png" alt="我的" width="260"></a> |
+| **我的收藏** | **观看历史** | **设置** |
+| <a href="./docs/images/07-favorites.png"><img src="./docs/images/07-favorites.png" alt="我的收藏" width="260"></a> | <a href="./docs/images/08-watch-history.png"><img src="./docs/images/08-watch-history.png" alt="观看历史" width="260"></a> | <a href="./docs/images/09-settings.png"><img src="./docs/images/09-settings.png" alt="设置" width="260"></a> |
+| **站点管理** | **添加站点** | **直播源管理** |
+| <a href="./docs/images/10-sites.png"><img src="./docs/images/10-sites.png" alt="站点管理" width="260"></a> | <a href="./docs/images/11-site-edit.png"><img src="./docs/images/11-site-edit.png" alt="添加站点" width="260"></a> | <a href="./docs/images/12-live-sources.png"><img src="./docs/images/12-live-sources.png" alt="直播源管理" width="260"></a> |
+| **添加直播源** | **影视详情** | **播放器** |
+| <a href="./docs/images/13-live-source-edit.png"><img src="./docs/images/13-live-source-edit.png" alt="添加直播源" width="260"></a> | <a href="./docs/images/13-detail.png"><img src="./docs/images/13-detail.png" alt="影视详情" width="260"></a> | <a href="./docs/images/14-player.png"><img src="./docs/images/14-player.png" alt="播放器" width="260"></a> |
+| **全站点搜索** | **搜索结果** | **搜索历史** |
+| <a href="./docs/images/15-aggregate-search.png"><img src="./docs/images/15-aggregate-search.png" alt="全站点搜索" width="260"></a> | <a href="./docs/images/12-search-results.png"><img src="./docs/images/12-search-results.png" alt="搜索结果" width="260"></a> | <a href="./docs/images/07-search-history.png"><img src="./docs/images/07-search-history.png" alt="搜索历史" width="260"></a> |
+| **观看历史详情** | **我的下载** | **下载详情** |
+| <a href="./docs/images/09-watch-history-folder.png"><img src="./docs/images/09-watch-history-folder.png" alt="观看历史详情" width="260"></a> | <a href="./docs/images/10-my-downloads.png"><img src="./docs/images/10-my-downloads.png" alt="我的下载" width="260"></a> | <a href="./docs/images/18-download-folder.png"><img src="./docs/images/18-download-folder.png" alt="下载详情" width="260"></a> |
 
 ---
 

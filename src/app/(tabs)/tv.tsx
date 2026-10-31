@@ -794,7 +794,7 @@ const styles = StyleSheet.create({
   },
   librarySearchWrap: {
     marginHorizontal: 16,
-    marginTop: 10,
+    marginTop: 0,
     height: 38,
     borderRadius: 0,
     paddingHorizontal: 12,
