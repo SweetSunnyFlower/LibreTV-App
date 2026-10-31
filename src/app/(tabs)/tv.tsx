@@ -1,7 +1,7 @@
 import { FilterPicker, type FilterPickerOption } from '@/components/iptv/filter-picker';
 import { useIptv } from '@/context/iptv-context';
 import { useThemeName } from '@/hooks/use-theme';
-import type { IptvChannel, IptvLibraryChannel } from '@/models/iptv';
+import type { IptvChannel, IptvLibraryChannel, IptvSource } from '@/models/iptv';
 import { fetchIptvChannels } from '@/services/iptv';
 import {
   getIptvLibraryChannels,
@@ -9,16 +9,21 @@ import {
   getIptvLibrarySyncedAt,
   syncIptvLibrary,
 } from '@/services/iptv-library';
-import { groupIptvChannels } from '@/utils/iptv';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { ChevronDown, ChevronRight, RefreshCw, Search, Tv } from 'lucide-react-native';
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Plus,
+  RefreshCw,
+  Search,
+} from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -27,6 +32,18 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type TvTab = 'mine' | 'library';
+
+type SourceChannelState = {
+  status: 'idle' | 'loading' | 'loaded' | 'error';
+  channels: IptvChannel[];
+  error?: string;
+};
+
+type MineRow =
+  | { type: 'source'; source: IptvSource }
+  | { type: 'loading'; sourceId: number }
+  | { type: 'error'; sourceId: number; message: string }
+  | { type: 'channel'; channel: IptvChannel };
 
 function countryFlag(code: string) {
   if (!code) return '';
@@ -41,15 +58,13 @@ export default function TvScreen() {
   const insets = useSafeAreaInsets();
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
-  const { source } = useIptv();
+  const { sources } = useIptv();
 
   const [tab, setTab] = useState<TvTab>('mine');
-  const [channels, setChannels] = useState<IptvChannel[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
   const [query, setQuery] = useState('');
-  const [refreshKey, setRefreshKey] = useState(0);
-  const requestRef = useRef(0);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [sourceStates, setSourceStates] = useState<Record<number, SourceChannelState>>({});
+  const didInitRef = useRef(false);
 
   const [librarySyncing, setLibrarySyncing] = useState(false);
   const [libraryError, setLibraryError] = useState('');
@@ -62,38 +77,64 @@ export default function TvScreen() {
   const [filterCategory, setFilterCategory] = useState('');
   const [picker, setPicker] = useState<'country' | 'language' | 'category' | null>(null);
 
-  const loadM3uChannels = useCallback(async () => {
-    if (!source) {
-      setChannels([]);
-      setErrorMsg('');
-      return;
-    }
-
-    const requestId = ++requestRef.current;
-    setLoading(true);
-    setErrorMsg('');
+  const fetchSource = useCallback(async (source: IptvSource) => {
+    setSourceStates((prev) => ({
+      ...prev,
+      [source.id]: { status: 'loading', channels: [] },
+    }));
     try {
-      const parsed = await fetchIptvChannels(source.url);
-      if (requestRef.current !== requestId) return;
-      setChannels(parsed);
+      const channels = await fetchIptvChannels(source.url);
+      setSourceStates((prev) => ({
+        ...prev,
+        [source.id]: { status: 'loaded', channels },
+      }));
     } catch (error) {
-      if (requestRef.current !== requestId) return;
-      console.warn('[TV] Failed to load IPTV channels:', error);
-      setErrorMsg(error instanceof Error ? error.message : '直播源加载失败');
-      setChannels([]);
-    } finally {
-      if (requestRef.current === requestId) {
-        setLoading(false);
+      setSourceStates((prev) => ({
+        ...prev,
+        [source.id]: {
+          status: 'error',
+          channels: [],
+          error: error instanceof Error ? error.message : '直播源加载失败',
+        },
+      }));
+    }
+  }, []);
+
+  const toggleSource = useCallback(async (source: IptvSource) => {
+    const willExpand = !expandedIds.has(source.id);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (willExpand) {
+        next.add(source.id);
+      } else {
+        next.delete(source.id);
+      }
+      return next;
+    });
+
+    if (willExpand) {
+      const state = sourceStates[source.id];
+      if (state?.status !== 'loaded' && state?.status !== 'loading') {
+        await fetchSource(source);
       }
     }
-  }, [source]);
+  }, [expandedIds, fetchSource, sourceStates]);
 
   useEffect(() => {
-    void loadM3uChannels();
-    return () => {
-      requestRef.current += 1;
-    };
-  }, [loadM3uChannels, refreshKey]);
+    if (didInitRef.current || sources.length === 0) return;
+    didInitRef.current = true;
+    void toggleSource(sources[0]);
+  }, [sources, toggleSource]);
+
+  const reloadMine = useCallback(() => {
+    setSourceStates({});
+    const expanded = new Set(expandedIds);
+    for (const source of sources) {
+      if (expanded.has(source.id)) {
+        void fetchSource(source);
+      }
+    }
+  }, [expandedIds, fetchSource, sources]);
 
   const loadLibrary = useCallback(async () => {
     setLibraryError('');
@@ -158,16 +199,30 @@ export default function TvScreen() {
     };
   }, [tab, loadLibrary, syncLibrary, filterCountry, filterLanguage, filterCategory, db]);
 
-  const filteredChannels = useMemo(() => {
+  const mineRows = useMemo<MineRow[]>(() => {
+    const rows: MineRow[] = [];
     const keyword = query.trim().toLowerCase();
-    if (!keyword) return channels;
-    return channels.filter((item) => item.name.toLowerCase().includes(keyword));
-  }, [channels, query]);
+    for (const source of sources) {
+      rows.push({ type: 'source', source });
+      if (!expandedIds.has(source.id)) continue;
 
-  const sections = useMemo(
-    () => groupIptvChannels(filteredChannels).map((group) => ({ title: group.name, data: group.channels })),
-    [filteredChannels]
-  );
+      const state = sourceStates[source.id];
+      if (state?.status === 'loading') {
+        rows.push({ type: 'loading', sourceId: source.id });
+        continue;
+      }
+      if (state?.status === 'error') {
+        rows.push({ type: 'error', sourceId: source.id, message: state.error ?? '直播源加载失败' });
+        continue;
+      }
+      for (const channel of state?.channels ?? []) {
+        if (!keyword || channel.name.toLowerCase().includes(keyword)) {
+          rows.push({ type: 'channel', channel });
+        }
+      }
+    }
+    return rows;
+  }, [sources, expandedIds, sourceStates, query]);
 
   const openM3uChannel = useCallback((channel: IptvChannel) => {
     router.push({
@@ -198,15 +253,43 @@ export default function TvScreen() {
   const languageLabel = languageOptions.find((item) => item.key === filterLanguage)?.label ?? '语言';
   const categoryLabel = categoryOptions.find((item) => item.key === filterCategory)?.label ?? '分类';
 
-  const renderM3uChannel = useCallback(({ item }: { item: IptvChannel }) => (
-    <ChannelRow
-      avatar={item.name.trim().slice(0, 1) || '台'}
-      title={item.name}
-      subtitle={item.group}
-      onPress={() => openM3uChannel(item)}
-      palette={palette}
-    />
-  ), [openM3uChannel, palette]);
+  const renderMineRow = useCallback(({ item }: { item: MineRow }) => {
+    if (item.type === 'source') {
+      const isExpanded = expandedIds.has(item.source.id);
+      const state = sourceStates[item.source.id];
+      const count = state?.status === 'loaded' ? `${state.channels.length} 个频道` : state?.status === 'loading' ? '加载中...' : '';
+      return (
+        <Pressable
+          style={({ pressed }) => [
+            styles.sourceHeader,
+            { borderBottomColor: palette.border, backgroundColor: palette.segmentBackground },
+            pressed && { opacity: 0.6 },
+          ]}
+          onPress={() => toggleSource(item.source)}>
+          <View style={styles.sourceHeaderText}>
+            <Text style={[styles.sourceName, { color: palette.text }]} numberOfLines={1}>{item.source.name}</Text>
+            {count ? <Text style={[styles.sourceMeta, { color: palette.secondaryText }]}>{count}</Text> : null}
+          </View>
+          {isExpanded ? <ChevronUp size={18} color={palette.secondaryText} strokeWidth={1.8} /> : <ChevronDown size={18} color={palette.secondaryText} strokeWidth={1.8} />}
+        </Pressable>
+      );
+    }
+    if (item.type === 'loading') {
+      return <View style={styles.inlineState}><ActivityIndicator size="small" color={palette.secondaryText} /></View>;
+    }
+    if (item.type === 'error') {
+      return <Text style={[styles.inlineError, { color: palette.secondaryText }]}>{item.message}</Text>;
+    }
+    return (
+      <ChannelRow
+        avatar={item.channel.name.trim().slice(0, 1) || '台'}
+        title={item.channel.name}
+        subtitle={item.channel.group}
+        onPress={() => openM3uChannel(item.channel)}
+        palette={palette}
+      />
+    );
+  }, [expandedIds, openM3uChannel, palette, sourceStates, toggleSource]);
 
   const renderLibraryChannel = useCallback(({ item }: { item: IptvLibraryChannel }) => (
     <ChannelRow
@@ -224,17 +307,17 @@ export default function TvScreen() {
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: palette.text }]}>电视</Text>
           <Text style={[styles.subtitle, { color: palette.secondaryText }]} numberOfLines={1}>
-            {tab === 'mine' ? (source ? source.name : '暂无直播源') : '在线频道库 · iptv-org'}
+            {tab === 'mine' ? `${sources.length} 个直播源` : '在线频道库 · iptv-org'}
           </Text>
         </View>
         <View style={styles.headerActions}>
           {tab === 'mine' ? (
             <>
-              <Pressable onPress={() => setRefreshKey((value) => value + 1)} hitSlop={8} style={styles.headerButton}>
+              <Pressable onPress={reloadMine} hitSlop={8} style={styles.headerButton}>
                 <RefreshCw size={18} color={palette.text} strokeWidth={1.8} />
               </Pressable>
               <Pressable onPress={() => router.push('/live-sources')} hitSlop={8} style={styles.headerButton}>
-                <Text style={[styles.headerButtonText, { color: palette.text }]}>换源</Text>
+                <Plus size={20} color={palette.text} strokeWidth={1.9} />
               </Pressable>
             </>
           ) : (
@@ -274,36 +357,13 @@ export default function TvScreen() {
               autoCorrect={false}
             />
           </View>
-
-          {loading ? (
-            <ListState text="正在加载频道..." palette={palette} />
-          ) : errorMsg ? (
-            <ListState
-              text={errorMsg}
-              actionLabel="重试"
-              onAction={() => setRefreshKey((value) => value + 1)}
-              palette={palette}
-            />
-          ) : !source ? (
-            <ListState
-              text="请先添加直播源"
-              actionLabel="去添加"
-              onAction={() => router.push('/live-sources')}
-              palette={palette}
-            />
-          ) : (
-            <SectionList
-              sections={sections}
-              keyExtractor={(item) => item.url}
-              renderItem={renderM3uChannel}
-              renderSectionHeader={({ section }) => (
-                <Text style={[styles.sectionHeader, { color: palette.secondaryText }]}>{section.title}</Text>
-              )}
-              stickySectionHeadersEnabled
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
-            />
-          )}
+          <FlatList
+            data={mineRows}
+            keyExtractor={(item, index) => (item.type === 'channel' ? item.channel.url : `${item.type}-${index}`)}
+            renderItem={renderMineRow}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+          />
         </>
       ) : (
         <>
@@ -544,14 +604,30 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '700',
   },
-  sectionHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 6,
-    fontSize: 12,
-    lineHeight: 16,
+  sourceHeader: {
+    minHeight: 48,
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sourceHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sourceName: {
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '800',
-    backgroundColor: 'transparent',
+  },
+  sourceMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '500',
   },
   channelRow: {
     minHeight: 64,
@@ -588,6 +664,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '500',
+  },
+  inlineState: {
+    minHeight: 56,
+    marginHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineError: {
+    marginHorizontal: 16,
+    paddingVertical: 16,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
   },
   listState: {
     flex: 1,
