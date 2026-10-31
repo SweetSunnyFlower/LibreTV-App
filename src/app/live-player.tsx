@@ -3,6 +3,7 @@ import { useEvent } from 'expo';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { StatusBar } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { ChevronLeft, Pause, Play } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -115,6 +116,7 @@ export default function LivePlayerScreen() {
 
   return (
     <View style={styles.container}>
+      <StatusBar hidden />
       {!errorMsg ? (
         <VideoView
           player={player}
