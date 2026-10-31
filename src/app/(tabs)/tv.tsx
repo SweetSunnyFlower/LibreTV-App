@@ -1,4 +1,5 @@
-import { FilterPicker, type FilterPickerOption } from '@/components/iptv/filter-picker';
+import type { FilterPickerOption } from '@/components/iptv/filter-picker';
+import { FilterDrawer, type IptvLibraryFilters } from '@/components/iptv/filter-drawer';
 import { useIptv } from '@/context/iptv-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { IptvChannel, IptvLibraryChannel, IptvSource } from '@/models/iptv';
@@ -11,7 +12,7 @@ import {
 } from '@/services/iptv-library';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { ChevronDown, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react-native';
+import { ChevronRight, Plus, RefreshCw, Search } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -71,7 +72,7 @@ export default function TvScreen() {
   const [filterCountry, setFilterCountry] = useState('CN');
   const [filterLanguage, setFilterLanguage] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
-  const [picker, setPicker] = useState<'country' | 'language' | 'category' | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const tabUnderlineX = useRef(new Animated.Value(0)).current;
   const [tabMetrics, setTabMetrics] = useState<Record<string, { x: number; width: number }>>({});
   const sourceIndicatorY = useRef(new Animated.Value(0)).current;
@@ -241,10 +242,6 @@ export default function TvScreen() {
     });
   }, [router]);
 
-  const countryLabel = countryOptions.find((item) => item.key === filterCountry)?.label ?? '国家';
-  const languageLabel = languageOptions.find((item) => item.key === filterLanguage)?.label ?? '语言';
-  const categoryLabel = categoryOptions.find((item) => item.key === filterCategory)?.label ?? '分类';
-
   const renderLibraryChannel = useCallback(({ item }: { item: IptvLibraryChannel }) => (
     <ChannelRow
       avatar={countryFlag(item.country) || item.name.trim().slice(0, 1) || '台'}
@@ -275,9 +272,14 @@ export default function TvScreen() {
               </Pressable>
             </>
           ) : (
-            <Pressable onPress={syncLibrary} disabled={librarySyncing} hitSlop={8} style={styles.headerButton}>
-              <Text style={[styles.headerButtonText, { color: palette.text }]}>{librarySyncing ? '同步中' : '同步'}</Text>
-            </Pressable>
+            <>
+              <Pressable onPress={() => setDrawerOpen(true)} hitSlop={8} style={styles.headerButton}>
+                <Text style={[styles.headerButtonText, { color: palette.text }]}>筛选</Text>
+              </Pressable>
+              <Pressable onPress={syncLibrary} disabled={librarySyncing} hitSlop={8} style={styles.headerButton}>
+                <Text style={[styles.headerButtonText, { color: palette.text }]}>{librarySyncing ? '同步中' : '同步'}</Text>
+              </Pressable>
+            </>
           )}
         </View>
       </View>
@@ -402,12 +404,6 @@ export default function TvScreen() {
         </View>
       ) : (
         <>
-          <View style={styles.filterRow}>
-            <FilterButton label={countryLabel} onPress={() => setPicker('country')} palette={palette} />
-            <FilterButton label={languageLabel} onPress={() => setPicker('language')} palette={palette} />
-            <FilterButton label={categoryLabel} onPress={() => setPicker('category')} palette={palette} />
-          </View>
-
           {librarySyncing ? (
             <ListState text="正在同步频道库..." palette={palette} />
           ) : libraryError ? (
@@ -424,29 +420,20 @@ export default function TvScreen() {
         </>
       )}
 
-      <FilterPicker
-        visible={picker === 'country'}
-        title="选择国家"
-        options={countryOptions}
-        selectedKey={filterCountry}
-        onSelect={setFilterCountry}
-        onClose={() => setPicker(null)}
-      />
-      <FilterPicker
-        visible={picker === 'language'}
-        title="选择语言"
-        options={languageOptions}
-        selectedKey={filterLanguage}
-        onSelect={setFilterLanguage}
-        onClose={() => setPicker(null)}
-      />
-      <FilterPicker
-        visible={picker === 'category'}
-        title="选择分类"
-        options={categoryOptions}
-        selectedKey={filterCategory}
-        onSelect={setFilterCategory}
-        onClose={() => setPicker(null)}
+      <FilterDrawer
+        visible={drawerOpen}
+        countryOptions={countryOptions}
+        languageOptions={languageOptions}
+        categoryOptions={categoryOptions}
+        country={filterCountry}
+        language={filterLanguage}
+        category={filterCategory}
+        onApply={(filters) => {
+          setFilterCountry(filters.country);
+          setFilterLanguage(filters.language);
+          setFilterCategory(filters.category);
+        }}
+        onClose={() => setDrawerOpen(false)}
       />
     </View>
   );
@@ -481,15 +468,6 @@ function ChannelRow({
         {subtitle ? <Text style={[styles.channelMeta, { color: palette.secondaryText }]} numberOfLines={1}>{subtitle}</Text> : null}
       </View>
       <ChevronRight size={17} color={palette.secondaryText} strokeWidth={1.8} />
-    </Pressable>
-  );
-}
-
-function FilterButton({ label, onPress, palette }: { label: string; onPress: () => void; palette: typeof lightPalette }) {
-  return (
-    <Pressable style={[styles.filterButton, { backgroundColor: palette.segmentBackground }]} onPress={onPress}>
-      <Text style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>{label}</Text>
-      <ChevronDown size={14} color={palette.secondaryText} strokeWidth={1.8} />
     </Pressable>
   );
 }
@@ -658,29 +636,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '600',
     paddingVertical: 0,
-  },
-  filterRow: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  filterButton: {
-    flex: 1,
-    height: 36,
-    borderRadius: 0,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
-  filterButtonText: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700',
   },
   channelRow: {
     minHeight: 64,
