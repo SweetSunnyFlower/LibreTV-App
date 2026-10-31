@@ -11,19 +11,13 @@ import {
 } from '@/services/iptv-library';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import {
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Plus,
-  RefreshCw,
-  Search,
-} from 'lucide-react-native';
+import { ChevronDown, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -38,12 +32,6 @@ type SourceChannelState = {
   channels: IptvChannel[];
   error?: string;
 };
-
-type MineRow =
-  | { type: 'source'; source: IptvSource }
-  | { type: 'loading'; sourceId: number }
-  | { type: 'error'; sourceId: number; message: string }
-  | { type: 'channel'; channel: IptvChannel };
 
 function countryFlag(code: string) {
   if (!code) return '';
@@ -61,9 +49,9 @@ export default function TvScreen() {
   const { sources } = useIptv();
 
   const [tab, setTab] = useState<TvTab>('mine');
-  const [query, setQuery] = useState('');
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
   const [sourceStates, setSourceStates] = useState<Record<number, SourceChannelState>>({});
+  const [query, setQuery] = useState('');
   const didInitRef = useRef(false);
 
   const [librarySyncing, setLibrarySyncing] = useState(false);
@@ -100,41 +88,27 @@ export default function TvScreen() {
     }
   }, []);
 
-  const toggleSource = useCallback(async (source: IptvSource) => {
-    const willExpand = !expandedIds.has(source.id);
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (willExpand) {
-        next.add(source.id);
-      } else {
-        next.delete(source.id);
-      }
-      return next;
-    });
-
-    if (willExpand) {
-      const state = sourceStates[source.id];
-      if (state?.status !== 'loaded' && state?.status !== 'loading') {
-        await fetchSource(source);
-      }
+  const selectSource = useCallback((source: IptvSource) => {
+    setSelectedSourceId(source.id);
+    setQuery('');
+    const state = sourceStates[source.id];
+    if (state?.status !== 'loaded' && state?.status !== 'loading') {
+      void fetchSource(source);
     }
-  }, [expandedIds, fetchSource, sourceStates]);
+  }, [fetchSource, sourceStates]);
 
   useEffect(() => {
     if (didInitRef.current || sources.length === 0) return;
     didInitRef.current = true;
-    void toggleSource(sources[0]);
-  }, [sources, toggleSource]);
+    selectSource(sources[0]);
+  }, [sources, selectSource]);
 
-  const reloadMine = useCallback(() => {
-    setSourceStates({});
-    const expanded = new Set(expandedIds);
-    for (const source of sources) {
-      if (expanded.has(source.id)) {
-        void fetchSource(source);
-      }
+  const reloadSelected = useCallback(() => {
+    const source = sources.find((item) => item.id === selectedSourceId);
+    if (source) {
+      void fetchSource(source);
     }
-  }, [expandedIds, fetchSource, sources]);
+  }, [fetchSource, selectedSourceId, sources]);
 
   const loadLibrary = useCallback(async () => {
     setLibraryError('');
@@ -199,30 +173,13 @@ export default function TvScreen() {
     };
   }, [tab, loadLibrary, syncLibrary, filterCountry, filterLanguage, filterCategory, db]);
 
-  const mineRows = useMemo<MineRow[]>(() => {
-    const rows: MineRow[] = [];
+  const selectedState = selectedSourceId != null ? sourceStates[selectedSourceId] : undefined;
+  const selectedChannels = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    for (const source of sources) {
-      rows.push({ type: 'source', source });
-      if (!expandedIds.has(source.id)) continue;
-
-      const state = sourceStates[source.id];
-      if (state?.status === 'loading') {
-        rows.push({ type: 'loading', sourceId: source.id });
-        continue;
-      }
-      if (state?.status === 'error') {
-        rows.push({ type: 'error', sourceId: source.id, message: state.error ?? '直播源加载失败' });
-        continue;
-      }
-      for (const channel of state?.channels ?? []) {
-        if (!keyword || channel.name.toLowerCase().includes(keyword)) {
-          rows.push({ type: 'channel', channel });
-        }
-      }
-    }
-    return rows;
-  }, [sources, expandedIds, sourceStates, query]);
+    const channels = selectedState?.channels ?? [];
+    if (!keyword) return channels;
+    return channels.filter((item) => item.name.toLowerCase().includes(keyword));
+  }, [query, selectedState]);
 
   const openM3uChannel = useCallback((channel: IptvChannel) => {
     router.push({
@@ -253,44 +210,6 @@ export default function TvScreen() {
   const languageLabel = languageOptions.find((item) => item.key === filterLanguage)?.label ?? '语言';
   const categoryLabel = categoryOptions.find((item) => item.key === filterCategory)?.label ?? '分类';
 
-  const renderMineRow = useCallback(({ item }: { item: MineRow }) => {
-    if (item.type === 'source') {
-      const isExpanded = expandedIds.has(item.source.id);
-      const state = sourceStates[item.source.id];
-      const count = state?.status === 'loaded' ? `${state.channels.length} 个频道` : state?.status === 'loading' ? '加载中...' : '';
-      return (
-        <Pressable
-          style={({ pressed }) => [
-            styles.sourceHeader,
-            { borderBottomColor: palette.border, backgroundColor: palette.segmentBackground },
-            pressed && { opacity: 0.6 },
-          ]}
-          onPress={() => toggleSource(item.source)}>
-          <View style={styles.sourceHeaderText}>
-            <Text style={[styles.sourceName, { color: palette.text }]} numberOfLines={1}>{item.source.name}</Text>
-            {count ? <Text style={[styles.sourceMeta, { color: palette.secondaryText }]}>{count}</Text> : null}
-          </View>
-          {isExpanded ? <ChevronUp size={18} color={palette.secondaryText} strokeWidth={1.8} /> : <ChevronDown size={18} color={palette.secondaryText} strokeWidth={1.8} />}
-        </Pressable>
-      );
-    }
-    if (item.type === 'loading') {
-      return <View style={styles.inlineState}><ActivityIndicator size="small" color={palette.secondaryText} /></View>;
-    }
-    if (item.type === 'error') {
-      return <Text style={[styles.inlineError, { color: palette.secondaryText }]}>{item.message}</Text>;
-    }
-    return (
-      <ChannelRow
-        avatar={item.channel.name.trim().slice(0, 1) || '台'}
-        title={item.channel.name}
-        subtitle={item.channel.group}
-        onPress={() => openM3uChannel(item.channel)}
-        palette={palette}
-      />
-    );
-  }, [expandedIds, openM3uChannel, palette, sourceStates, toggleSource]);
-
   const renderLibraryChannel = useCallback(({ item }: { item: IptvLibraryChannel }) => (
     <ChannelRow
       avatar={countryFlag(item.country) || item.name.trim().slice(0, 1) || '台'}
@@ -307,13 +226,13 @@ export default function TvScreen() {
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: palette.text }]}>电视</Text>
           <Text style={[styles.subtitle, { color: palette.secondaryText }]} numberOfLines={1}>
-            {tab === 'mine' ? `${sources.length} 个直播源` : '在线频道库 · iptv-org'}
+            {tab === 'mine' ? (selectedSourceId != null ? sources.find((item) => item.id === selectedSourceId)?.name ?? '我的直播源' : '我的直播源') : '在线频道库 · iptv-org'}
           </Text>
         </View>
         <View style={styles.headerActions}>
           {tab === 'mine' ? (
             <>
-              <Pressable onPress={reloadMine} hitSlop={8} style={styles.headerButton}>
+              <Pressable onPress={reloadSelected} hitSlop={8} style={styles.headerButton}>
                 <RefreshCw size={18} color={palette.text} strokeWidth={1.8} />
               </Pressable>
               <Pressable onPress={() => router.push('/live-sources')} hitSlop={8} style={styles.headerButton}>
@@ -344,27 +263,71 @@ export default function TvScreen() {
       </View>
 
       {tab === 'mine' ? (
-        <>
-          <View style={[styles.searchWrap, { backgroundColor: palette.segmentBackground }]}>
-            <Search size={17} color={palette.secondaryText} strokeWidth={1.8} />
-            <TextInput
-              style={[styles.searchInput, { color: palette.text }]}
-              value={query}
-              onChangeText={setQuery}
-              placeholder="搜索频道"
-              placeholderTextColor={palette.secondaryText}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+        <View style={styles.mineLayout}>
+          <ScrollView
+            style={[styles.sourceSidebar, { backgroundColor: palette.segmentBackground }]}
+            showsVerticalScrollIndicator={false}>
+            {sources.map((source) => {
+              const isActive = source.id === selectedSourceId;
+              return (
+                <Pressable
+                  key={source.id}
+                  style={[
+                    styles.sourceSideItem,
+                    { borderBottomColor: palette.border },
+                    isActive && { backgroundColor: palette.background },
+                  ]}
+                  onPress={() => selectSource(source)}>
+                  {isActive ? <View style={[styles.sourceSideAccent, { backgroundColor: palette.accent }]} /> : null}
+                  <Text
+                    style={[styles.sourceSideText, { color: isActive ? palette.accent : palette.text }]}
+                    numberOfLines={2}>
+                    {source.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.channelPane}>
+            <View style={[styles.searchWrap, { backgroundColor: palette.segmentBackground }]}>
+              <Search size={17} color={palette.secondaryText} strokeWidth={1.8} />
+              <TextInput
+                style={[styles.searchInput, { color: palette.text }]}
+                value={query}
+                onChangeText={setQuery}
+                placeholder="搜索频道"
+                placeholderTextColor={palette.secondaryText}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            {!selectedSourceId ? (
+              <ListState text="选择左侧直播源" palette={palette} />
+            ) : selectedState?.status === 'loading' ? (
+              <ListState text="正在加载频道..." palette={palette} />
+            ) : selectedState?.status === 'error' ? (
+              <ListState text={selectedState.error ?? '直播源加载失败'} actionLabel="重试" onAction={reloadSelected} palette={palette} />
+            ) : (
+              <FlatList
+                data={selectedChannels}
+                keyExtractor={(item) => item.url}
+                renderItem={({ item }) => (
+                  <ChannelRow
+                    avatar={item.name.trim().slice(0, 1) || '台'}
+                    title={item.name}
+                    subtitle={item.group}
+                    onPress={() => openM3uChannel(item)}
+                    palette={palette}
+                  />
+                )}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.listContent}
+              />
+            )}
           </View>
-          <FlatList
-            data={mineRows}
-            keyExtractor={(item, index) => (item.type === 'channel' ? item.channel.url : `${item.type}-${index}`)}
-            renderItem={renderMineRow}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.listContent}
-          />
-        </>
+        </View>
       ) : (
         <>
           <View style={styles.filterRow}>
@@ -545,6 +508,7 @@ const styles = StyleSheet.create({
   segmentWrap: {
     paddingHorizontal: 16,
     paddingTop: 4,
+    paddingBottom: 10,
   },
   segment: {
     height: 38,
@@ -563,19 +527,49 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: '800',
   },
+  mineLayout: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  sourceSidebar: {
+    width: 108,
+  },
+  sourceSideItem: {
+    minHeight: 58,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sourceSideAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+  },
+  sourceSideText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  channelPane: {
+    flex: 1,
+  },
   searchWrap: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    height: 40,
+    marginHorizontal: 12,
+    marginTop: 10,
+    height: 38,
     borderRadius: 0,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   searchInput: {
     flex: 1,
-    height: 40,
+    height: 38,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '600',
@@ -604,50 +598,25 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '700',
   },
-  sourceHeader: {
-    minHeight: 48,
-    marginHorizontal: 16,
-    marginTop: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sourceHeaderText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  sourceName: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '800',
-  },
-  sourceMeta: {
-    marginTop: 2,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '500',
-  },
   channelRow: {
     minHeight: 64,
-    marginHorizontal: 16,
+    marginHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   avatar: {
-    width: 38,
-    height: 38,
+    width: 36,
+    height: 36,
     borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   avatarText: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '800',
   },
   channelText: {
@@ -655,28 +624,15 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   channelName: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '700',
   },
   channelMeta: {
-    marginTop: 3,
-    fontSize: 12,
-    lineHeight: 16,
+    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: '500',
-  },
-  inlineState: {
-    minHeight: 56,
-    marginHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inlineError: {
-    marginHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '600',
   },
   listState: {
     flex: 1,
