@@ -6,7 +6,7 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
 import { ChevronLeft, List, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -38,11 +38,14 @@ export default function LivePlayerScreen() {
   const [errorMsg, setErrorMsg] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
   const [currentUrl, setCurrentUrl] = useState(firstParam(params.url) ?? '');
+  const [currentSource, setCurrentSource] = useState<VideoSource | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerChannels, setDrawerChannels] = useState<IptvChannel[]>([]);
   const [controlsVisible, setControlsVisible] = useState(true);
   const drawerX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
 
   const player = useVideoPlayer(null, () => {});
   const { status } = useEvent(player, 'statusChange', {
@@ -102,7 +105,11 @@ export default function LivePlayerScreen() {
           if (!uri) throw new Error('缺少播放地址');
           if (cancelled) return;
           await player.replaceAsync({ uri });
-          if (!cancelled) setCurrentUrl(uri);
+          if (!cancelled) {
+            setCurrentUrl(uri);
+            setCurrentSource({ uri });
+            retryCountRef.current = 0;
+          }
         } else {
           const channelId = firstParam(params.channelId) ?? '';
           if (!channelId) throw new Error('缺少频道 ID');
@@ -115,12 +122,17 @@ export default function LivePlayerScreen() {
           if (stream.userAgent) headers['User-Agent'] = stream.userAgent;
 
           if (cancelled) return;
+          const source: VideoSource = Object.keys(headers).length > 0
+            ? { uri: stream.url, headers }
+            : { uri: stream.url };
           await player.replaceAsync(
-            Object.keys(headers).length > 0
-              ? { uri: stream.url, headers }
-              : { uri: stream.url }
+            source
           );
-          if (!cancelled) setCurrentUrl(stream.url);
+          if (!cancelled) {
+            setCurrentUrl(stream.url);
+            setCurrentSource(source);
+            retryCountRef.current = 0;
+          }
         }
 
         if (!cancelled) {
@@ -143,13 +155,36 @@ export default function LivePlayerScreen() {
 
   const showLoading = loading || (!isPlaying && status !== 'error' && !errorMsg);
 
+  useEffect(() => {
+    if (status !== 'error' || !currentSource || errorMsg) return;
+    if (retryCountRef.current >= 3) {
+      setReconnecting(false);
+      return;
+    }
+    setReconnecting(true);
+    retryCountRef.current += 1;
+    const timer = setTimeout(async () => {
+      try {
+        await player.replaceAsync(currentSource);
+        player.play();
+      } catch (error) {
+        console.warn('[LivePlayer] Retry failed:', error);
+      }
+      setReconnecting(false);
+    }, 1600);
+    return () => clearTimeout(timer);
+  }, [status, currentSource, errorMsg, player]);
+
   const switchChannel = useCallback(async (channel: IptvChannel) => {
     setDrawerOpen(false);
     setErrorMsg('');
     try {
-      await player.replaceAsync({ uri: channel.url });
+      const source: VideoSource = { uri: channel.url };
+      await player.replaceAsync(source);
       player.play();
       setCurrentUrl(channel.url);
+      setCurrentSource(source);
+      retryCountRef.current = 0;
     } catch (error) {
       console.warn('[LivePlayer] Failed to switch channel:', error);
       setErrorMsg(error instanceof Error ? error.message : '切换失败');
@@ -198,6 +233,13 @@ export default function LivePlayerScreen() {
         <View style={styles.loadingOverlay} pointerEvents="none">
           <DotsLoading />
           <Text style={styles.loadingText}>正在加载直播…</Text>
+        </View>
+      ) : null}
+
+      {reconnecting && !errorMsg ? (
+        <View style={styles.loadingOverlay} pointerEvents="none">
+          <DotsLoading />
+          <Text style={styles.loadingText}>正在重连…</Text>
         </View>
       ) : null}
 
