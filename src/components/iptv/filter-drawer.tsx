@@ -22,6 +22,7 @@ export interface IptvLibraryFilters {
   country: string;
   language: string;
   category: string;
+  includeNsfw: boolean;
 }
 
 export function FilterDrawer({
@@ -32,6 +33,7 @@ export function FilterDrawer({
   country,
   language,
   category,
+  includeNsfw,
   onApply,
   onClose,
 }: {
@@ -42,6 +44,7 @@ export function FilterDrawer({
   country: string;
   language: string;
   category: string;
+  includeNsfw: boolean;
   onApply: (filters: IptvLibraryFilters) => void;
   onClose: () => void;
 }) {
@@ -49,12 +52,12 @@ export function FilterDrawer({
   const palette = isDark ? darkPalette : lightPalette;
   const translateX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const [rendered, setRendered] = useState(visible);
-  const [pending, setPending] = useState<IptvLibraryFilters>({ country, language, category });
+  const [pending, setPending] = useState<IptvLibraryFilters>({ country, language, category, includeNsfw });
 
   useEffect(() => {
     if (visible) {
       setRendered(true);
-      setPending({ country, language, category });
+      setPending({ country, language, category, includeNsfw });
       Animated.timing(translateX, {
         toValue: 0,
         duration: 260,
@@ -71,7 +74,7 @@ export function FilterDrawer({
         if (finished) setRendered(false);
       });
     }
-  }, [visible, rendered, translateX, country, language, category]);
+  }, [visible, rendered, translateX, country, language, category, includeNsfw]);
 
   const apply = useCallback(() => {
     onApply(pending);
@@ -79,7 +82,7 @@ export function FilterDrawer({
   }, [onApply, onClose, pending]);
 
   const reset = useCallback(() => {
-    setPending({ country: '', language: '', category: '' });
+    setPending({ country: '', language: '', category: '', includeNsfw: false });
   }, []);
 
   return (
@@ -115,6 +118,32 @@ export function FilterDrawer({
               onSelect={(key) => setPending((prev) => ({ ...prev, category: key }))}
               palette={palette}
             />
+          </View>
+
+          <View style={[styles.nsfwRow, { borderTopColor: palette.border }]}>
+            <Text style={[styles.nsfwText, { color: palette.text }]}>显示 NSFW 频道</Text>
+            <Pressable
+              onPress={() => setPending((prev) => ({ ...prev, includeNsfw: !prev.includeNsfw }))}
+              hitSlop={8}
+              accessibilityLabel="显示 NSFW 频道"
+              accessibilityRole="switch"
+              accessibilityState={{ checked: pending.includeNsfw }}>
+              <View
+                style={[
+                  styles.switchTrack,
+                  { backgroundColor: pending.includeNsfw ? palette.text : palette.segmentBackground },
+                ]}>
+                <View
+                  style={[
+                    styles.switchThumb,
+                    {
+                      backgroundColor: palette.inverseText,
+                      transform: [{ translateX: pending.includeNsfw ? 22 : 0 }],
+                    },
+                  ]}
+                />
+              </View>
+            </Pressable>
           </View>
 
           <View style={[styles.footer, { borderTopColor: palette.border }]}>
@@ -261,6 +290,29 @@ const styles = StyleSheet.create({
   check: {
     fontSize: 13,
     fontWeight: '800',
+  },
+  nsfwRow: {
+    minHeight: 52,
+    paddingHorizontal: 18,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  nsfwText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  switchTrack: {
+    width: 44,
+    height: 24,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  switchThumb: {
+    width: 18,
+    height: 18,
   },
   footer: {
     minHeight: 64,

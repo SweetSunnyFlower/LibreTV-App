@@ -40,4 +40,5 @@ export interface IptvLibraryFilter {
   country?: string;
   language?: string;
   category?: string;
+  includeNsfw?: boolean;
 }

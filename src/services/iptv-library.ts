@@ -307,8 +307,12 @@ export async function getIptvLibraryFilterOptions(db: SQLiteDatabase, kind: stri
 }
 
 export async function getIptvLibraryChannels(db: SQLiteDatabase, filter: IptvLibraryFilter) {
-  const clauses = ['isNsfw = 0'];
+  const clauses: string[] = [];
   const params: string[] = [];
+
+  if (!filter.includeNsfw) {
+    clauses.push('isNsfw = 0');
+  }
 
   if (filter.country) {
     clauses.push('country = ?');

@@ -87,6 +87,7 @@ export default function TvScreen() {
   const [filterCountry, setFilterCountry] = useState('CN');
   const [filterLanguage, setFilterLanguage] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  const [includeNsfw, setIncludeNsfw] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const tabUnderlineX = useRef(new Animated.Value(0)).current;
   const [tabMetrics, setTabMetrics] = useState<Record<string, { x: number; width: number }>>({});
@@ -219,6 +220,7 @@ export default function TvScreen() {
           country: filterCountry || undefined,
           language: filterLanguage || undefined,
           category: filterCategory || undefined,
+          includeNsfw,
         }),
         getIptvLibraryFilterOptions(db, 'countries'),
         getIptvLibraryFilterOptions(db, 'languages'),
@@ -241,7 +243,7 @@ export default function TvScreen() {
       console.warn('[TV] Failed to load library:', error);
       setLibraryError(error instanceof Error ? error.message : '在线频道库加载失败');
     }
-  }, [db, filterCategory, filterCountry, filterLanguage]);
+  }, [db, filterCategory, filterCountry, filterLanguage, includeNsfw]);
 
   const syncLibrary = useCallback(async () => {
     setLibrarySyncing(true);
@@ -292,7 +294,7 @@ export default function TvScreen() {
     return () => {
       cancelled = true;
     };
-  }, [tab, loadLibrary, syncLibrary, filterCountry, filterLanguage, filterCategory, db]);
+  }, [tab, loadLibrary, syncLibrary, filterCountry, filterLanguage, filterCategory, includeNsfw, db]);
 
   const selectedState = selectedSourceId != null ? sourceStates[selectedSourceId] : undefined;
   const selectedSource = sources.find((item) => item.id === selectedSourceId) ?? null;
@@ -653,10 +655,12 @@ export default function TvScreen() {
         country={filterCountry}
         language={filterLanguage}
         category={filterCategory}
+        includeNsfw={includeNsfw}
         onApply={(filters) => {
           setFilterCountry(filters.country);
           setFilterLanguage(filters.language);
           setFilterCategory(filters.category);
+          setIncludeNsfw(filters.includeNsfw);
         }}
         onClose={() => setDrawerOpen(false)}
       />
