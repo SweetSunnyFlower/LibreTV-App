@@ -404,6 +404,18 @@ export async function getAllIptvSources(db: SQLiteDatabase) {
   }>('SELECT * FROM iptv_sources ORDER BY createdAt ASC, id ASC');
 }
 
+export async function getIptvSourceStats(db: SQLiteDatabase) {
+  return db.getAllAsync<{
+    sourceId: number;
+    channelCount: number;
+    updatedAt: number;
+  }>(`
+    SELECT sourceId, COUNT(*) as channelCount, MAX(updatedAt) as updatedAt
+    FROM iptv_source_channel_cache
+    GROUP BY sourceId
+  `);
+}
+
 export async function setActiveIptvSource(db: SQLiteDatabase, id: number) {
   await db.withTransactionAsync(async () => {
     await db.runAsync('UPDATE iptv_sources SET isActive = 0 WHERE isActive = 1');

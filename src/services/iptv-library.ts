@@ -125,9 +125,8 @@ function qualityRank(quality?: string) {
   return match ? Number(match[1]) : 0;
 }
 
-export function pickBestStream(streams: IptvLibraryStream[]) {
+export function getSortedIptvLibraryStreams(streams: IptvLibraryStream[]) {
   const candidates = streams.filter((stream) => stream.url);
-  if (candidates.length === 0) return null;
 
   return candidates
     .map((stream) => ({
@@ -138,7 +137,11 @@ export function pickBestStream(streams: IptvLibraryStream[]) {
     .sort((a, b) => {
       if (b.rank !== a.rank) return b.rank - a.rank;
       return Number(a.blocked) - Number(b.blocked);
-    })[0].stream;
+    }).map((item) => item.stream);
+}
+
+export function pickBestStream(streams: IptvLibraryStream[]) {
+  return getSortedIptvLibraryStreams(streams)[0] ?? null;
 }
 
 export type IptvLibrarySyncProgress = {

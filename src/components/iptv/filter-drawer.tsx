@@ -10,6 +10,7 @@ import {
   Modal,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -122,28 +123,13 @@ export function FilterDrawer({
 
           <View style={[styles.nsfwRow, { borderTopColor: palette.border }]}>
             <Text style={[styles.nsfwText, { color: palette.text }]}>显示 NSFW 频道</Text>
-            <Pressable
-              onPress={() => setPending((prev) => ({ ...prev, includeNsfw: !prev.includeNsfw }))}
-              hitSlop={8}
+            <Switch
+              value={pending.includeNsfw}
+              onValueChange={(value) => setPending((prev) => ({ ...prev, includeNsfw: value }))}
+              trackColor={{ false: palette.segmentBackground, true: palette.text }}
+              thumbColor={palette.inverseText}
               accessibilityLabel="显示 NSFW 频道"
-              accessibilityRole="switch"
-              accessibilityState={{ checked: pending.includeNsfw }}>
-              <View
-                style={[
-                  styles.switchTrack,
-                  { backgroundColor: pending.includeNsfw ? palette.text : palette.segmentBackground },
-                ]}>
-                <View
-                  style={[
-                    styles.switchThumb,
-                    {
-                      backgroundColor: palette.inverseText,
-                      transform: [{ translateX: pending.includeNsfw ? 22 : 0 }],
-                    },
-                  ]}
-                />
-              </View>
-            </Pressable>
+            />
           </View>
 
           <View style={[styles.footer, { borderTopColor: palette.border }]}>
@@ -303,16 +289,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '700',
-  },
-  switchTrack: {
-    width: 44,
-    height: 24,
-    padding: 3,
-    justifyContent: 'center',
-  },
-  switchThumb: {
-    width: 18,
-    height: 18,
   },
   footer: {
     minHeight: 64,

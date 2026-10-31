@@ -1,6 +1,7 @@
-import { getIptvLibraryStreams, pickBestStream } from '@/services/iptv-library';
+import { getIptvLibraryStreams, getSortedIptvLibraryStreams } from '@/services/iptv-library';
 import { fetchIptvChannels, getCachedIptvChannels } from '@/services/iptv';
 import type { IptvChannel } from '@/models/iptv';
+import type { IptvLibraryStream } from '@/models/iptv';
 import { useUserData } from '@/context/user-data-context';
 import { useEvent } from 'expo';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -58,6 +59,8 @@ export default function LivePlayerScreen() {
   const drawerX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
+  const libraryStreamsRef = useRef<IptvLibraryStream[]>([]);
+  const libraryStreamIndexRef = useRef(0);
 
   const player = useVideoPlayer(null, () => {});
   const { status } = useEvent(player, 'statusChange', {
@@ -113,6 +116,8 @@ export default function LivePlayerScreen() {
     const prepare = async () => {
       try {
         if (kind === 'm3u') {
+          libraryStreamsRef.current = [];
+          libraryStreamIndexRef.current = 0;
           const uri = firstParam(params.url) ?? '';
           if (!uri) throw new Error('缺少播放地址');
           if (cancelled) return;
@@ -138,8 +143,11 @@ export default function LivePlayerScreen() {
           const channelId = firstParam(params.channelId) ?? '';
           if (!channelId) throw new Error('缺少频道 ID');
           const streams = await getIptvLibraryStreams(db, channelId);
-          const stream = pickBestStream(streams);
-          if (!stream) throw new Error('该频道暂无可用播放源');
+          const candidates = getSortedIptvLibraryStreams(streams);
+          if (candidates.length === 0) throw new Error('该频道暂无可用播放源');
+          libraryStreamsRef.current = candidates;
+          libraryStreamIndexRef.current = 0;
+          const stream = candidates[0];
 
           const headers: Record<string, string> = {};
           if (stream.referrer) headers.Referer = stream.referrer;
@@ -196,6 +204,50 @@ export default function LivePlayerScreen() {
       if (status !== 'error') setPlaybackFailed(false);
       return;
     }
+
+    if (kind === 'library') {
+      const nextIndex = libraryStreamIndexRef.current + 1;
+      if (nextIndex >= libraryStreamsRef.current.length) {
+        setPlaybackFailed(true);
+        setReconnecting(false);
+        return;
+      }
+
+      const stream = libraryStreamsRef.current[nextIndex];
+      const headers: Record<string, string> = {};
+      if (stream.referrer) headers.Referer = stream.referrer;
+      if (stream.userAgent) headers['User-Agent'] = stream.userAgent;
+      const source: VideoSource = Object.keys(headers).length > 0
+        ? { uri: stream.url, headers }
+        : { uri: stream.url };
+
+      libraryStreamIndexRef.current = nextIndex;
+      setPlaybackFailed(false);
+      setReconnecting(true);
+      const timer = setTimeout(async () => {
+        try {
+          await player.replaceAsync(source);
+          player.play();
+          setCurrentUrl(stream.url);
+          setChannelName(stream.title || channelName);
+          setCurrentSource(source);
+          void addLiveWatchHistory({
+            kind: 'library',
+            channelId: firstParam(params.channelId) ?? null,
+            channelName: stream.title || channelName,
+            channelUrl: stream.url,
+            sourceId: null,
+            sourceName: '在线频道库',
+            logo: '',
+          });
+        } catch (error) {
+          console.warn('[LivePlayer] Library stream fallback failed:', error);
+        }
+        setReconnecting(false);
+      }, 1400);
+      return () => clearTimeout(timer);
+    }
+
     if (retryCountRef.current >= 3) {
       setPlaybackFailed(true);
       setReconnecting(false);
@@ -214,7 +266,7 @@ export default function LivePlayerScreen() {
       setReconnecting(false);
     }, 1600);
     return () => clearTimeout(timer);
-  }, [status, currentSource, errorMsg, player]);
+  }, [status, currentSource, errorMsg, player, kind, addLiveWatchHistory, channelName, params.channelId]);
 
   const switchChannel = useCallback(async (channel: IptvChannel) => {
     setDrawerOpen(false);

@@ -4,7 +4,10 @@ import { useIptv } from '@/context/iptv-context';
 import { useUserData } from '@/context/user-data-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { IptvChannel, IptvLibraryChannel, IptvSource } from '@/models/iptv';
+import type { LiveWatchHistoryRecord } from '@/models/user-data';
 import { cacheIptvChannels, fetchIptvChannels, getCachedIptvChannels, probeStreamUrl } from '@/services/iptv';
+import { getIptvSourceStats } from '@/services/database';
+import { FlashList } from '@shopify/flash-list';
 import {
   getIptvLibraryChannels,
   getIptvLibraryFilterOptions,
@@ -23,8 +26,8 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
-  FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -55,6 +58,16 @@ function countryFlag(code: string) {
     .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
 
+function formatSourceUpdatedAt(timestamp: number) {
+  if (!timestamp) return '未同步';
+  const date = new Date(timestamp * 1000);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${month}-${day} ${hours}:${minutes}`;
+}
+
 export default function TvScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
@@ -62,11 +75,12 @@ export default function TvScreen() {
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
   const { sources } = useIptv();
-  const { isLiveFavorite, toggleLiveFavorite } = useUserData();
+  const { isLiveFavorite, toggleLiveFavorite, liveWatchHistory } = useUserData();
 
   const [tab, setTab] = useState<TvTab>('mine');
   const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
   const [sourceStates, setSourceStates] = useState<Record<number, SourceChannelState>>({});
+  const [sourceStats, setSourceStats] = useState<Record<number, { channelCount: number; updatedAt: number }>>({});
   const [channelStatus, setChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
   const [libraryChannelStatus, setLibraryChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
   const [query, setQuery] = useState('');
@@ -134,6 +148,18 @@ export default function TvScreen() {
     };
   }, []);
 
+  const loadSourceStats = useCallback(async () => {
+    try {
+      const rows = await getIptvSourceStats(db);
+      setSourceStats(Object.fromEntries(rows.map((row) => [
+        row.sourceId,
+        { channelCount: row.channelCount, updatedAt: row.updatedAt },
+      ])));
+    } catch (error) {
+      console.warn('[TV] Failed to load source stats:', error);
+    }
+  }, [db]);
+
   const refreshSource = useCallback(async (source: IptvSource) => {
     setSourceStates((prev) => ({
       ...prev,
@@ -142,6 +168,7 @@ export default function TvScreen() {
     try {
       const channels = await fetchIptvChannels(source.url);
       await cacheIptvChannels(db, source.id, channels);
+      void loadSourceStats();
       setSourceStates((prev) => ({
         ...prev,
         [source.id]: { status: 'loaded', channels },
@@ -156,7 +183,7 @@ export default function TvScreen() {
         },
       }));
     }
-  }, [db]);
+  }, [db, loadSourceStats]);
 
   const loadSource = useCallback(async (source: IptvSource) => {
     const existing = sourceStates[source.id];
@@ -165,6 +192,7 @@ export default function TvScreen() {
     try {
       const cached = await getCachedIptvChannels(db, source.id);
       if (cached && cached.length > 0) {
+        void loadSourceStats();
         setSourceStates((prev) => ({
           ...prev,
           [source.id]: { status: 'loaded', channels: cached },
@@ -173,6 +201,7 @@ export default function TvScreen() {
           try {
             const fresh = await fetchIptvChannels(source.url);
             await cacheIptvChannels(db, source.id, fresh);
+            void loadSourceStats();
             setSourceStates((prev) => ({
               ...prev,
               [source.id]: { status: 'loaded', channels: fresh },
@@ -188,7 +217,7 @@ export default function TvScreen() {
     }
 
     await refreshSource(source);
-  }, [db, refreshSource, sourceStates]);
+  }, [db, loadSourceStats, refreshSource, sourceStates]);
 
   const selectSource = useCallback((source: IptvSource) => {
     setSelectedSourceId(source.id);
@@ -202,8 +231,9 @@ export default function TvScreen() {
   useEffect(() => {
     if (didInitRef.current || sources.length === 0) return;
     didInitRef.current = true;
+    void loadSourceStats();
     selectSource(sources[0]);
-  }, [sources, selectSource]);
+  }, [loadSourceStats, selectSource, sources]);
 
   const reloadSelected = useCallback(() => {
     const source = sources.find((item) => item.id === selectedSourceId);
@@ -339,6 +369,21 @@ export default function TvScreen() {
         channelId: channel.id,
         name: channel.name,
         country: channel.country,
+      },
+    });
+  }, [router]);
+
+  const openRecentLive = useCallback((item: LiveWatchHistoryRecord) => {
+    router.push({
+      pathname: '/live-player',
+      params: {
+        kind: item.kind,
+        url: item.kind === 'm3u' ? item.channelUrl : '',
+        channelId: item.kind === 'library' ? (item.channelId ?? '') : '',
+        name: item.channelName,
+        sourceId: item.kind === 'm3u' && item.sourceId != null ? String(item.sourceId) : '',
+        sourceName: item.sourceName,
+        logo: item.logo,
       },
     });
   }, [router]);
@@ -482,6 +527,24 @@ export default function TvScreen() {
         </View>
       </View>
 
+      {liveWatchHistory.length > 0 ? (
+        <View style={[styles.recentWrap, { borderBottomColor: palette.border }]}>
+          <Text style={[styles.recentTitle, { color: palette.secondaryText }]}>最近看过的直播</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {liveWatchHistory.slice(0, 8).map((item) => (
+              <Pressable
+                key={item.id}
+                style={[styles.recentChip, { backgroundColor: palette.segmentBackground }]}
+                onPress={() => openRecentLive(item)}>
+                <Text style={[styles.recentChipText, { color: palette.text }]} numberOfLines={1}>
+                  {item.channelName}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+
       <View style={styles.tabsWrap}>
         <View style={styles.tabsRow}>
           {TAB_ITEMS.map((item) => {
@@ -541,11 +604,20 @@ export default function TvScreen() {
                       });
                     }}
                     onPress={() => selectSource(source)}>
-                    <Text
-                      style={[styles.sourceSideText, { color: isActive ? palette.text : palette.secondaryText }]}
-                      numberOfLines={2}>
-                      {source.name}
-                    </Text>
+                    <View style={styles.sourceSideTextWrap}>
+                      <Text
+                        style={[styles.sourceSideText, { color: isActive ? palette.text : palette.secondaryText }]}
+                        numberOfLines={2}>
+                        {source.name}
+                      </Text>
+                      <Text
+                        style={[styles.sourceSideMeta, { color: isActive ? palette.secondaryText : palette.secondaryText }]}
+                        numberOfLines={1}>
+                        {sourceStats[source.id]
+                          ? `更新 ${formatSourceUpdatedAt(sourceStats[source.id].updatedAt)} · ${sourceStats[source.id].channelCount} 个频道`
+                          : '未同步'}
+                      </Text>
+                    </View>
                   </Pressable>
                 );
               })}
@@ -582,7 +654,7 @@ export default function TvScreen() {
             ) : selectedState?.status === 'error' ? (
               <ListState text={selectedState.error ?? '直播源加载失败'} actionLabel="重试" onAction={reloadSelected} palette={palette} />
             ) : (
-              <FlatList
+              <FlashList
                 data={selectedChannels}
                 keyExtractor={(item) => item.url}
                 viewabilityConfig={CHANNEL_VIEWABILITY}
@@ -634,7 +706,7 @@ export default function TvScreen() {
           ) : libraryError ? (
             <ListState text={libraryError} actionLabel="重试" onAction={syncLibrary} palette={palette} />
           ) : (
-            <FlatList
+            <FlashList
               data={filteredLibraryChannels}
               keyExtractor={(item) => item.id}
               viewabilityConfig={CHANNEL_VIEWABILITY}
@@ -811,6 +883,29 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '800',
   },
+  recentWrap: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  recentTitle: {
+    marginBottom: 7,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  recentChip: {
+    maxWidth: 160,
+    height: 30,
+    marginRight: 8,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  recentChipText: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
   tabsWrap: {
     paddingHorizontal: 16,
     paddingTop: 8,
@@ -866,11 +961,20 @@ const styles = StyleSheet.create({
     height: SOURCE_INDICATOR_HEIGHT,
     borderRadius: 2,
   },
-  sourceSideText: {
+  sourceSideTextWrap: {
     flex: 1,
+    minWidth: 0,
+  },
+  sourceSideText: {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '800',
+  },
+  sourceSideMeta: {
+    marginTop: 3,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '500',
   },
   channelPane: {
     flex: 1,
