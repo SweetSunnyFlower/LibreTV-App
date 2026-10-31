@@ -68,6 +68,7 @@ export default function TvScreen() {
   const [channelStatus, setChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
   const [libraryChannelStatus, setLibraryChannelStatus] = useState<Record<string, 'checking' | 'available' | 'unavailable'>>({});
   const [query, setQuery] = useState('');
+  const [libraryQuery, setLibraryQuery] = useState('');
   const didInitRef = useRef(false);
   const probedChannelsRef = useRef<Set<string>>(new Set());
   const probedLibraryRef = useRef<Set<string>>(new Set());
@@ -260,6 +261,15 @@ export default function TvScreen() {
     return channels.filter((item) => item.name.toLowerCase().includes(keyword));
   }, [query, selectedState]);
 
+  const filteredLibraryChannels = useMemo(() => {
+    const keyword = libraryQuery.trim().toLowerCase();
+    if (!keyword) return libraryChannels;
+    return libraryChannels.filter((item) => (
+      item.name.toLowerCase().includes(keyword)
+      || item.altNames.some((alt) => alt.toLowerCase().includes(keyword))
+    ));
+  }, [libraryChannels, libraryQuery]);
+
   const openM3uChannel = useCallback((channel: IptvChannel) => {
     const source = sources.find((item) => item.id === selectedSourceId);
     router.push({
@@ -293,7 +303,7 @@ export default function TvScreen() {
     <ChannelRow
       avatar={countryFlag(item.country) || item.name.trim().slice(0, 1) || '台'}
       title={item.name}
-      subtitle={item.categories.slice(0, 3).join(' · ') || item.country}
+      subtitle={item.altNames.length > 0 ? item.altNames.join(' · ') : (item.categories.slice(0, 3).join(' · ') || item.country)}
       status={libraryChannelStatus[item.id]}
       onPress={() => openLibraryChannel(item)}
       palette={palette}
@@ -502,13 +512,25 @@ export default function TvScreen() {
         </View>
       ) : (
         <>
+          <View style={[styles.librarySearchWrap, { backgroundColor: palette.segmentBackground }]}>
+            <Search size={17} color={palette.secondaryText} strokeWidth={1.8} />
+            <TextInput
+              style={[styles.searchInput, { color: palette.text }]}
+              value={libraryQuery}
+              onChangeText={setLibraryQuery}
+              placeholder="搜索频道名或别名"
+              placeholderTextColor={palette.secondaryText}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
           {librarySyncing ? (
             <ListState text="正在同步频道库..." palette={palette} />
           ) : libraryError ? (
             <ListState text={libraryError} actionLabel="重试" onAction={syncLibrary} palette={palette} />
           ) : (
             <FlatList
-              data={libraryChannels}
+              data={filteredLibraryChannels}
               keyExtractor={(item) => item.id}
               viewabilityConfig={CHANNEL_VIEWABILITY}
               onViewableItemsChanged={handleLibraryChannelViewable}
@@ -749,6 +771,16 @@ const styles = StyleSheet.create({
   searchWrap: {
     marginHorizontal: 12,
     marginTop: 0,
+    height: 38,
+    borderRadius: 0,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  librarySearchWrap: {
+    marginHorizontal: 16,
+    marginTop: 10,
     height: 38,
     borderRadius: 0,
     paddingHorizontal: 12,
