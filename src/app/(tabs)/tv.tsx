@@ -92,6 +92,7 @@ export default function TvScreen() {
   const [librarySyncing, setLibrarySyncing] = useState(false);
   const [librarySyncProgress, setLibrarySyncProgress] = useState('');
   const [libraryStreamsSyncing, setLibraryStreamsSyncing] = useState(false);
+  const [libraryStreamSyncPercent, setLibraryStreamSyncPercent] = useState(0);
   const [libraryStreamsReady, setLibraryStreamsReady] = useState(false);
   const [libraryError, setLibraryError] = useState('');
   const [libraryChannels, setLibraryChannels] = useState<IptvLibraryChannel[]>([]);
@@ -288,10 +289,12 @@ export default function TvScreen() {
       setLibrarySyncing(false);
       setLibrarySyncProgress('');
       setLibraryStreamsSyncing(true);
-      setLibrarySyncProgress('正在后台同步流数据…');
+      setLibraryStreamSyncPercent(0);
+      setLibrarySyncProgress('正在同步流数据…');
       try {
         await syncIptvLibraryStreams(db, ({ label, percent }) => {
           setLibrarySyncProgress(`${label} · ${percent}%`);
+          setLibraryStreamSyncPercent(percent);
         });
         setLibraryStreamsReady(true);
       } catch (error) {
@@ -520,7 +523,7 @@ export default function TvScreen() {
               </Pressable>
               <Pressable onPress={syncLibrary} disabled={librarySyncing || libraryStreamsSyncing} hitSlop={8} style={styles.headerButton}>
                 <Text style={[styles.headerButtonText, { color: palette.text }]}>
-                  {librarySyncing ? '同步中' : libraryStreamsSyncing ? '流同步中' : '同步'}
+                  {librarySyncing ? '同步中' : libraryStreamsSyncing ? `流同步中 · ${libraryStreamSyncPercent}%` : '同步'}
                 </Text>
               </Pressable>
             </>
@@ -702,14 +705,6 @@ export default function TvScreen() {
               autoCorrect={false}
             />
           </View>
-          {libraryStreamsSyncing ? (
-            <View style={[styles.streamSyncBanner, { backgroundColor: palette.segmentBackground }]}>
-              <ActivityIndicator size="small" color={palette.secondaryText} />
-              <Text style={[styles.streamSyncBannerText, { color: palette.secondaryText }]} numberOfLines={1}>
-                {librarySyncProgress || '正在后台同步流数据…'}
-              </Text>
-            </View>
-          ) : null}
           {librarySyncing ? (
             <ListState text={librarySyncProgress || '正在同步频道库...'} palette={palette} />
           ) : libraryError ? (
@@ -1012,21 +1007,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  streamSyncBanner: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    minHeight: 32,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  streamSyncBannerText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
   },
   searchInput: {
     flex: 1,

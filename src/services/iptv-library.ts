@@ -169,8 +169,8 @@ export async function syncIptvLibraryChannels(
   db: SQLiteDatabase,
   onProgress?: (progress: IptvLibrarySyncProgress) => void
 ) {
-  onProgress?.({ label: '正在下载频道数据', percent: 0 });
-  const track = createProgressTracker(onProgress, 4, '正在下载频道数据');
+  onProgress?.({ label: '正在同步频道', percent: 0 });
+  const track = createProgressTracker(onProgress, 4, '正在同步频道');
 
   const [channels, countries, languages, categories] = await Promise.all([
     track(fetchLibraryJson<RawChannel[]>('channels.json', 120000)),
@@ -179,7 +179,7 @@ export async function syncIptvLibraryChannels(
     track(fetchLibraryJson<RawCategory[]>('categories.json', 25000)),
   ]);
 
-  onProgress?.({ label: '正在写入数据库', percent: 78 });
+  onProgress?.({ label: '正在同步频道', percent: 78 });
 
   await db.withTransactionAsync(async () => {
     await db.execAsync('DELETE FROM iptv_library_channels');
@@ -221,22 +221,22 @@ export async function syncIptvLibraryChannels(
     );
   });
 
-  onProgress?.({ label: '频道数据同步完成', percent: 100 });
+  onProgress?.({ label: '频道同步完成', percent: 100 });
 }
 
 export async function syncIptvLibraryStreams(
   db: SQLiteDatabase,
   onProgress?: (progress: IptvLibrarySyncProgress) => void
 ) {
-  onProgress?.({ label: '正在后台同步流数据', percent: 0 });
-  const track = createProgressTracker(onProgress, 2, '正在后台同步流数据');
+  onProgress?.({ label: '正在同步流数据', percent: 0 });
+  const track = createProgressTracker(onProgress, 2, '正在同步流数据');
 
   const [feeds, streams] = await Promise.all([
     track(fetchLibraryJson<RawFeed[]>('feeds.json', 120000)),
     track(fetchLibraryJson<RawStream[]>('streams.json', 120000)),
   ]);
 
-  onProgress?.({ label: '正在写入流数据', percent: 78 });
+  onProgress?.({ label: '正在同步流数据', percent: 78 });
 
   const languagesByChannel = new Map<string, string[]>();
   for (const feed of feeds) {
