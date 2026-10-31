@@ -138,6 +138,15 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       kind TEXT PRIMARY KEY,
       itemsJson TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS iptv_source_channel_cache (
+      sourceId INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      logo TEXT NOT NULL DEFAULT '',
+      groupTitle TEXT NOT NULL DEFAULT '',
+      updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      PRIMARY KEY (sourceId, url)
+    );
     CREATE TABLE IF NOT EXISTS downloads (
       id TEXT PRIMARY KEY,
       vodName TEXT NOT NULL,
@@ -203,6 +212,7 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_watch_history_updated ON watch_history(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_iptv_library_channels_country ON iptv_library_channels(country);
     CREATE INDEX IF NOT EXISTS idx_iptv_library_streams_channel ON iptv_library_streams(channel);
+    CREATE INDEX IF NOT EXISTS idx_iptv_source_channel_cache_source ON iptv_source_channel_cache(sourceId);
   `);
 
   const downloadColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(downloads)');

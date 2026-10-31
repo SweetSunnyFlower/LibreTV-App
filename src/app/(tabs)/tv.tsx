@@ -3,7 +3,7 @@ import { FilterDrawer, type IptvLibraryFilters } from '@/components/iptv/filter-
 import { useIptv } from '@/context/iptv-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { IptvChannel, IptvLibraryChannel, IptvSource } from '@/models/iptv';
-import { fetchIptvChannels } from '@/services/iptv';
+import { cacheIptvChannels, fetchIptvChannels, getCachedIptvChannels } from '@/services/iptv';
 import {
   getIptvLibraryChannels,
   getIptvLibraryFilterOptions,
@@ -101,13 +101,14 @@ export default function TvScreen() {
     }).start();
   }, [selectedSourceId, sourceMetrics, sourceIndicatorY]);
 
-  const fetchSource = useCallback(async (source: IptvSource) => {
+  const refreshSource = useCallback(async (source: IptvSource) => {
     setSourceStates((prev) => ({
       ...prev,
       [source.id]: { status: 'loading', channels: [] },
     }));
     try {
       const channels = await fetchIptvChannels(source.url);
+      await cacheIptvChannels(db, source.id, channels);
       setSourceStates((prev) => ({
         ...prev,
         [source.id]: { status: 'loaded', channels },
@@ -122,16 +123,48 @@ export default function TvScreen() {
         },
       }));
     }
-  }, []);
+  }, [db]);
+
+  const loadSource = useCallback(async (source: IptvSource) => {
+    const existing = sourceStates[source.id];
+    if (existing?.status === 'loaded' || existing?.status === 'loading') return;
+
+    try {
+      const cached = await getCachedIptvChannels(db, source.id);
+      if (cached && cached.length > 0) {
+        setSourceStates((prev) => ({
+          ...prev,
+          [source.id]: { status: 'loaded', channels: cached },
+        }));
+        void (async () => {
+          try {
+            const fresh = await fetchIptvChannels(source.url);
+            await cacheIptvChannels(db, source.id, fresh);
+            setSourceStates((prev) => ({
+              ...prev,
+              [source.id]: { status: 'loaded', channels: fresh },
+            }));
+          } catch (error) {
+            console.warn('[TV] Background refresh failed:', error);
+          }
+        })();
+        return;
+      }
+    } catch (error) {
+      console.warn('[TV] Failed to read cached channels:', error);
+    }
+
+    await refreshSource(source);
+  }, [db, refreshSource, sourceStates]);
 
   const selectSource = useCallback((source: IptvSource) => {
     setSelectedSourceId(source.id);
     setQuery('');
     const state = sourceStates[source.id];
     if (state?.status !== 'loaded' && state?.status !== 'loading') {
-      void fetchSource(source);
+      void loadSource(source);
     }
-  }, [fetchSource, sourceStates]);
+  }, [loadSource, sourceStates]);
 
   useEffect(() => {
     if (didInitRef.current || sources.length === 0) return;
@@ -142,9 +175,9 @@ export default function TvScreen() {
   const reloadSelected = useCallback(() => {
     const source = sources.find((item) => item.id === selectedSourceId);
     if (source) {
-      void fetchSource(source);
+      void refreshSource(source);
     }
-  }, [fetchSource, selectedSourceId, sources]);
+  }, [refreshSource, selectedSourceId, sources]);
 
   const loadLibrary = useCallback(async () => {
     setLibraryError('');
