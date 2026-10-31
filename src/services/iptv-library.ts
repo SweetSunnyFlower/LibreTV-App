@@ -6,7 +6,10 @@ import type {
 } from '@/models/iptv';
 import { fetchJsonWithTimeout } from '@/services/http';
 
-const API_BASE = 'https://cdn.jsdelivr.net/gh/iptv-org/api@gh-pages/';
+const API_BASES = [
+  'https://cdn.jsdelivr.net/gh/iptv-org/api@gh-pages/',
+  'https://iptv-org.github.io/api/',
+];
 
 type RawChannel = {
   id: string;
@@ -70,6 +73,18 @@ type StreamRow = {
   labels: string;
 };
 
+async function fetchLibraryJson<T>(path: string) {
+  let lastError: unknown = null;
+  for (const base of API_BASES) {
+    try {
+      return await fetchJsonWithTimeout<T>(`${base}${path}`, {}, 120000);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error('直播库请求失败');
+}
+
 function parseChannel(row: ChannelRow): IptvLibraryChannel {
   return {
     id: row.id,
@@ -127,12 +142,12 @@ export function pickBestStream(streams: IptvLibraryStream[]) {
 
 export async function syncIptvLibrary(db: SQLiteDatabase) {
   const [channels, streams, feeds, countries, languages, categories] = await Promise.all([
-    fetchJsonWithTimeout<RawChannel[]>(`${API_BASE}channels.json`, {}, 120000),
-    fetchJsonWithTimeout<RawStream[]>(`${API_BASE}streams.json`, {}, 120000),
-    fetchJsonWithTimeout<RawFeed[]>(`${API_BASE}feeds.json`, {}, 120000),
-    fetchJsonWithTimeout<RawCountry[]>(`${API_BASE}countries.json`, {}, 120000),
-    fetchJsonWithTimeout<RawLanguage[]>(`${API_BASE}languages.json`, {}, 120000),
-    fetchJsonWithTimeout<RawCategory[]>(`${API_BASE}categories.json`, {}, 120000),
+    fetchLibraryJson<RawChannel[]>('channels.json'),
+    fetchLibraryJson<RawStream[]>('streams.json'),
+    fetchLibraryJson<RawFeed[]>('feeds.json'),
+    fetchLibraryJson<RawCountry[]>('countries.json'),
+    fetchLibraryJson<RawLanguage[]>('languages.json'),
+    fetchLibraryJson<RawCategory[]>('categories.json'),
   ]);
 
   const languagesByChannel = new Map<string, string[]>();
