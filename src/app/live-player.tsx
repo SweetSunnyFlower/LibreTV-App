@@ -38,6 +38,7 @@ export default function LivePlayerScreen() {
 
   const kind = firstParam(params.kind);
   const { addLiveWatchHistory } = useUserData();
+  const [channelName, setChannelName] = useState(firstParam(params.name) ?? '直播');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
@@ -112,6 +113,7 @@ export default function LivePlayerScreen() {
           await player.replaceAsync({ uri });
           if (!cancelled) {
             setCurrentUrl(uri);
+            setChannelName(firstParam(params.name) ?? '直播');
             setCurrentSource({ uri });
             retryCountRef.current = 0;
             const sourceId = Number(firstParam(params.sourceId));
@@ -143,6 +145,7 @@ export default function LivePlayerScreen() {
           );
           if (!cancelled) {
             setCurrentUrl(stream.url);
+            setChannelName(stream.title || firstParam(params.name) || '直播');
             setCurrentSource(source);
             retryCountRef.current = 0;
             void addLiveWatchHistory({
@@ -209,6 +212,7 @@ export default function LivePlayerScreen() {
       await player.replaceAsync(source);
       player.play();
       setCurrentUrl(channel.url);
+      setChannelName(channel.name);
       setCurrentSource(source);
       retryCountRef.current = 0;
       const sourceId = Number(firstParam(params.sourceId));
@@ -310,13 +314,16 @@ export default function LivePlayerScreen() {
       ) : null}
 
       {controlsVisible ? (
-        <Pressable
-          style={[styles.backButton, { top: insets.top + 8 }]}
-          onPress={handleBack}
-          hitSlop={8}
-          accessibilityLabel="返回">
-          <ChevronLeft size={27} color="#fff" strokeWidth={2.15} />
-        </Pressable>
+        <View style={[styles.topLeftControls, { top: insets.top + 8 }]}>
+          <Pressable
+            style={styles.backButton}
+            onPress={handleBack}
+            hitSlop={8}
+            accessibilityLabel="返回">
+            <ChevronLeft size={27} color="#fff" strokeWidth={2.15} />
+          </Pressable>
+          <Text style={styles.channelName} numberOfLines={1}>{channelName}</Text>
+        </View>
       ) : null}
 
       {controlsVisible && kind === 'm3u' ? (
@@ -489,15 +496,28 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '800',
   },
-  backButton: {
+  topLeftControls: {
     position: 'absolute',
     left: 12,
-    top: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: SCREEN_WIDTH * 0.72,
+  },
+  backButton: {
     width: 44,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  channelName: {
+    marginLeft: 8,
+    color: '#fff',
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '800',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowRadius: 4,
   },
   channelListButton: {
     position: 'absolute',
