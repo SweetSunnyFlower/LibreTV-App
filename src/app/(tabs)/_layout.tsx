@@ -1,6 +1,6 @@
 import { useThemeName } from '@/hooks/use-theme';
 import { Tabs } from 'expo-router';
-import { Download, House, LayoutGrid, Search, UserRound, type LucideIcon } from 'lucide-react-native';
+import { House, LayoutGrid, Search, Tv, UserRound, type LucideIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,7 +11,7 @@ const ROUTE_ICONS: RouteIconMap = {
   index: House,
   categories: LayoutGrid,
   'search-entry': Search,
-  downloads: Download,
+  tv: Tv,
   my: UserRound,
 };
 
@@ -131,7 +131,7 @@ export default function TabLayout() {
       <Tabs.Screen name="index" options={{ title: '首页' }} />
       <Tabs.Screen name="categories" options={{ title: '分类' }} />
       <Tabs.Screen name="search-entry" options={{ title: '搜索' }} />
-      <Tabs.Screen name="downloads" options={{ title: '下载' }} />
+      <Tabs.Screen name="tv" options={{ title: '电视' }} />
       <Tabs.Screen name="my" options={{ title: '我的' }} />
     </Tabs>
   );

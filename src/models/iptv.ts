@@ -7,3 +7,10 @@ export interface IptvSource {
 }
 
 export type IptvSourceInput = Omit<IptvSource, 'id' | 'isActive' | 'createdAt'>;
+
+export interface IptvChannel {
+  name: string;
+  url: string;
+  logo?: string;
+  group?: string;
+}
