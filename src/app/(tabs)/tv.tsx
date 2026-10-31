@@ -15,6 +15,8 @@ import { ChevronDown, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   FlatList,
   Pressable,
   StyleSheet,
@@ -31,6 +33,12 @@ type SourceChannelState = {
   channels: IptvChannel[];
   error?: string;
 };
+
+const TAB_ITEMS: Array<{ key: TvTab; label: string }> = [
+  { key: 'mine', label: '我的直播源' },
+  { key: 'library', label: '在线频道库' },
+];
+const TAB_UNDERLINE_WIDTH = 16;
 
 function countryFlag(code: string) {
   if (!code) return '';
@@ -63,6 +71,19 @@ export default function TvScreen() {
   const [filterLanguage, setFilterLanguage] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [picker, setPicker] = useState<'country' | 'language' | 'category' | null>(null);
+  const tabUnderlineX = useRef(new Animated.Value(0)).current;
+  const [tabMetrics, setTabMetrics] = useState<Record<string, { x: number; width: number }>>({});
+
+  useEffect(() => {
+    const metric = tabMetrics[tab];
+    if (!metric) return;
+    Animated.timing(tabUnderlineX, {
+      toValue: metric.x + (metric.width - TAB_UNDERLINE_WIDTH) / 2,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [tab, tabMetrics, tabUnderlineX]);
 
   const fetchSource = useCallback(async (source: IptvSource) => {
     setSourceStates((prev) => ({
@@ -246,18 +267,39 @@ export default function TvScreen() {
         </View>
       </View>
 
-      <View style={styles.segmentWrap}>
-        <View style={[styles.segment, { backgroundColor: palette.segmentBackground }]}>
-          <Pressable
-            style={[styles.segmentItem, tab === 'mine' && { backgroundColor: palette.text }]}
-            onPress={() => setTab('mine')}>
-            <Text style={[styles.segmentText, { color: tab === 'mine' ? palette.inverseText : palette.secondaryText }]}>我的直播源</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.segmentItem, tab === 'library' && { backgroundColor: palette.text }]}
-            onPress={() => setTab('library')}>
-            <Text style={[styles.segmentText, { color: tab === 'library' ? palette.inverseText : palette.secondaryText }]}>在线频道库</Text>
-          </Pressable>
+      <View style={styles.tabsWrap}>
+        <View style={styles.tabsRow}>
+          {TAB_ITEMS.map((item) => {
+            const isSelected = tab === item.key;
+            return (
+              <Pressable
+                key={item.key}
+                style={styles.tabButton}
+                onPress={() => setTab(item.key)}
+                onLayout={(event) => {
+                  const { x, width } = event.nativeEvent.layout;
+                  setTabMetrics((current) => {
+                    const previous = current[item.key];
+                    if (previous?.x === x && previous.width === width) return current;
+                    return { ...current, [item.key]: { x, width } };
+                  });
+                }}
+                hitSlop={10}>
+                <Text style={[styles.tabText, { color: isSelected ? palette.text : palette.secondaryText }]} numberOfLines={1}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+          <Animated.View
+            style={[
+              styles.tabUnderline,
+              {
+                backgroundColor: palette.text,
+                transform: [{ translateX: tabUnderlineX }],
+              },
+            ]}
+          />
         </View>
       </View>
 
@@ -504,27 +546,34 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '800',
   },
-  segmentWrap: {
+  tabsWrap: {
     paddingHorizontal: 16,
-    paddingTop: 4,
+    paddingTop: 8,
     paddingBottom: 10,
   },
-  segment: {
-    height: 38,
-    borderRadius: 0,
-    padding: 3,
+  tabsRow: {
     flexDirection: 'row',
+    gap: 20,
+    minHeight: 30,
+    position: 'relative',
   },
-  segmentItem: {
-    flex: 1,
-    borderRadius: 0,
+  tabButton: {
+    height: 26,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
-  segmentText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '800',
+  tabText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  tabUnderline: {
+    position: 'absolute',
+    left: 0,
+    top: 22,
+    width: TAB_UNDERLINE_WIDTH,
+    height: 4,
+    borderRadius: 4,
   },
   mineLayout: {
     flex: 1,
