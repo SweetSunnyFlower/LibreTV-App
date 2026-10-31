@@ -8,24 +8,17 @@ import { deleteIptvSource as dbDeleteIptvSource } from '@/services/database';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
-import { Check, Plus, Tv, Trash2 } from 'lucide-react-native';
+import { Plus, Tv, Trash2 } from 'lucide-react-native';
 import { useCallback } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export default function LiveSourcesScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
-  const { sources, source, setActiveSource, refreshSources, isHydrating } = useIptv();
+  const { sources, refreshSources, isHydrating } = useIptv();
   const isDark = useThemeName() === 'dark';
   const palette = isDark ? darkPalette : lightPalette;
   const dialog = useAppDialog();
-
-  const handleSelect = useCallback(
-    async (item: IptvSource) => {
-      await setActiveSource(item.id);
-    },
-    [setActiveSource]
-  );
 
   const handleDelete = useCallback(
     (item: IptvSource) => {
@@ -63,14 +56,10 @@ export default function LiveSourcesScreen() {
   );
 
   const renderItem = ({ item }: { item: IptvSource }) => {
-    const isActive = source?.id === item.id;
-
     return (
-      <Pressable
-        style={({ pressed }) => [styles.sourceItem, { borderBottomColor: palette.border }, pressed && { opacity: 0.65 }]}
-        onPress={() => handleSelect(item)}>
+      <View style={[styles.sourceItem, { borderBottomColor: palette.border }]}>
         <View style={styles.iconSlot}>
-          {isActive ? <Check size={19} color={palette.text} strokeWidth={2} /> : <Tv size={18} color={palette.secondaryText} strokeWidth={1.75} />}
+          <Tv size={18} color={palette.secondaryText} strokeWidth={1.75} />
         </View>
         <View style={styles.sourceTitleGroup}>
           <Text style={[styles.sourceName, { color: palette.text }]} numberOfLines={1}>{item.name}</Text>
@@ -84,7 +73,7 @@ export default function LiveSourcesScreen() {
             <Trash2 size={16} color={palette.secondaryText} strokeWidth={1.75} />
           </Pressable>
         </View>
-      </Pressable>
+      </View>
     );
   };
 
