@@ -2,26 +2,20 @@ import { FilterPicker, type FilterPickerOption } from '@/components/iptv/filter-
 import { useIptv } from '@/context/iptv-context';
 import { useThemeName } from '@/hooks/use-theme';
 import type { IptvChannel, IptvLibraryChannel } from '@/models/iptv';
-import { getAppSetting, setAppSetting } from '@/services/database';
 import { fetchIptvChannels } from '@/services/iptv';
 import {
   getIptvLibraryChannels,
   getIptvLibraryFilterOptions,
-  getIptvLibraryStreams,
   getIptvLibrarySyncedAt,
-  pickBestStream,
   syncIptvLibrary,
 } from '@/services/iptv-library';
 import { groupIptvChannels } from '@/utils/iptv';
-import { useEvent } from 'expo';
 import { useRouter } from 'expo-router';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSQLiteContext } from 'expo-sqlite';
-import { ChevronDown, RefreshCw, Search, Tv, WifiOff } from 'lucide-react-native';
+import { ChevronDown, ChevronRight, RefreshCw, Search, Tv } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   FlatList,
   Pressable,
   SectionList,
@@ -32,10 +26,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const VIDEO_HEIGHT = Math.min(SCREEN_WIDTH * 0.56, 300);
-
 type TvTab = 'mine' | 'library';
+
+function countryFlag(code: string) {
+  if (!code) return '';
+  return code
+    .toUpperCase()
+    .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
 
 export default function TvScreen() {
   const router = useRouter();
@@ -50,14 +48,12 @@ export default function TvScreen() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [query, setQuery] = useState('');
-  const [currentM3u, setCurrentM3u] = useState<IptvChannel | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const requestRef = useRef(0);
 
   const [librarySyncing, setLibrarySyncing] = useState(false);
   const [libraryError, setLibraryError] = useState('');
   const [libraryChannels, setLibraryChannels] = useState<IptvLibraryChannel[]>([]);
-  const [currentLibrary, setCurrentLibrary] = useState<IptvLibraryChannel | null>(null);
   const [countryOptions, setCountryOptions] = useState<FilterPickerOption[]>([]);
   const [languageOptions, setLanguageOptions] = useState<FilterPickerOption[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<FilterPickerOption[]>([]);
@@ -66,27 +62,9 @@ export default function TvScreen() {
   const [filterCategory, setFilterCategory] = useState('');
   const [picker, setPicker] = useState<'country' | 'language' | 'category' | null>(null);
 
-  const player = useVideoPlayer(null, () => {});
-  const { status } = useEvent(player, 'statusChange', {
-    status: player.status,
-    error: undefined,
-  });
-
-  const playUrl = useCallback(async (uri: string, headers?: Record<string, string>) => {
-    setErrorMsg('');
-    try {
-      await player.replaceAsync(headers ? { uri, headers } : { uri });
-      player.play();
-    } catch (error) {
-      console.warn('[TV] Failed to play:', error);
-      setErrorMsg(error instanceof Error ? error.message : '频道播放失败');
-    }
-  }, [player]);
-
   const loadM3uChannels = useCallback(async () => {
     if (!source) {
       setChannels([]);
-      setCurrentM3u(null);
       setErrorMsg('');
       return;
     }
@@ -98,23 +76,17 @@ export default function TvScreen() {
       const parsed = await fetchIptvChannels(source.url);
       if (requestRef.current !== requestId) return;
       setChannels(parsed);
-
-      const lastKey = `iptv.lastChannel.${source.id}`;
-      const lastUrl = await getAppSetting(db, lastKey);
-      const restored = parsed.find((item) => item.url === lastUrl) ?? parsed[0] ?? null;
-      setCurrentM3u(restored);
     } catch (error) {
       if (requestRef.current !== requestId) return;
       console.warn('[TV] Failed to load IPTV channels:', error);
       setErrorMsg(error instanceof Error ? error.message : '直播源加载失败');
       setChannels([]);
-      setCurrentM3u(null);
     } finally {
       if (requestRef.current === requestId) {
         setLoading(false);
       }
     }
-  }, [db, source]);
+  }, [source]);
 
   useEffect(() => {
     void loadM3uChannels();
@@ -122,36 +94,6 @@ export default function TvScreen() {
       requestRef.current += 1;
     };
   }, [loadM3uChannels, refreshKey]);
-
-  const playM3uChannel = useCallback(async (channel: IptvChannel) => {
-    setCurrentM3u(channel);
-    setCurrentLibrary(null);
-    await playUrl(channel.url);
-    if (source) {
-      await setAppSetting(db, `iptv.lastChannel.${source.id}`, channel.url);
-    }
-  }, [db, playUrl, source]);
-
-  const playLibraryChannel = useCallback(async (channel: IptvLibraryChannel) => {
-    setCurrentLibrary(channel);
-    setCurrentM3u(null);
-    setLibraryError('');
-    try {
-      const streams = await getIptvLibraryStreams(db, channel.id);
-      const stream = pickBestStream(streams);
-      if (!stream) {
-        setLibraryError('该频道暂无可用播放源');
-        return;
-      }
-      const headers: Record<string, string> = {};
-      if (stream.referrer) headers.Referer = stream.referrer;
-      if (stream.userAgent) headers['User-Agent'] = stream.userAgent;
-      await playUrl(stream.url, headers);
-    } catch (error) {
-      console.warn('[TV] Failed to load library streams:', error);
-      setLibraryError(error instanceof Error ? error.message : '频道加载失败');
-    }
-  }, [db, playUrl]);
 
   const loadLibrary = useCallback(async () => {
     setLibraryError('');
@@ -227,61 +169,54 @@ export default function TvScreen() {
     [filteredChannels]
   );
 
+  const openM3uChannel = useCallback((channel: IptvChannel) => {
+    router.push({
+      pathname: '/live-player',
+      params: {
+        kind: 'm3u',
+        url: channel.url,
+        name: channel.name,
+        group: channel.group ?? '',
+        logo: channel.logo ?? '',
+      },
+    });
+  }, [router]);
+
+  const openLibraryChannel = useCallback((channel: IptvLibraryChannel) => {
+    router.push({
+      pathname: '/live-player',
+      params: {
+        kind: 'library',
+        channelId: channel.id,
+        name: channel.name,
+        country: channel.country,
+      },
+    });
+  }, [router]);
+
   const countryLabel = countryOptions.find((item) => item.key === filterCountry)?.label ?? '国家';
   const languageLabel = languageOptions.find((item) => item.key === filterLanguage)?.label ?? '语言';
   const categoryLabel = categoryOptions.find((item) => item.key === filterCategory)?.label ?? '分类';
 
-  const renderM3uChannel = useCallback(({ item }: { item: IptvChannel }) => {
-    const isActive = currentM3u?.url === item.url;
-    return (
-      <Pressable
-        style={({ pressed }) => [
-          styles.channelRow,
-          isActive && { backgroundColor: palette.segmentBackground },
-          pressed && { opacity: 0.6 },
-        ]}
-        onPress={() => playM3uChannel(item)}>
-        <Text style={[styles.channelName, { color: isActive ? palette.accent : palette.text }]} numberOfLines={1}>
-          {item.name}
-        </Text>
-        {isActive ? <Text style={[styles.playingBadge, { color: palette.accent }]}>播放中</Text> : null}
-      </Pressable>
-    );
-  }, [currentM3u?.url, palette.accent, palette.segmentBackground, palette.text, playM3uChannel]);
+  const renderM3uChannel = useCallback(({ item }: { item: IptvChannel }) => (
+    <ChannelRow
+      avatar={item.name.trim().slice(0, 1) || '台'}
+      title={item.name}
+      subtitle={item.group}
+      onPress={() => openM3uChannel(item)}
+      palette={palette}
+    />
+  ), [openM3uChannel, palette]);
 
-  const renderLibraryChannel = useCallback(({ item }: { item: IptvLibraryChannel }) => {
-    const isActive = currentLibrary?.id === item.id;
-    const meta = item.categories.slice(0, 2).join(' · ') || item.country;
-    return (
-      <Pressable
-        style={({ pressed }) => [
-          styles.channelRow,
-          isActive && { backgroundColor: palette.segmentBackground },
-          pressed && { opacity: 0.6 },
-        ]}
-        onPress={() => playLibraryChannel(item)}>
-        <View style={styles.libraryText}>
-          <Text style={[styles.channelName, { color: isActive ? palette.accent : palette.text }]} numberOfLines={1}>
-            {item.name}
-          </Text>
-          {meta ? <Text style={[styles.channelMeta, { color: palette.secondaryText }]} numberOfLines={1}>{meta}</Text> : null}
-        </View>
-        {isActive ? <Text style={[styles.playingBadge, { color: palette.accent }]}>播放中</Text> : null}
-      </Pressable>
-    );
-  }, [currentLibrary?.id, palette.accent, palette.secondaryText, palette.segmentBackground, palette.text, playLibraryChannel]);
-
-  const renderEmptyVideo = (title: string, button?: { label: string; onPress: () => void }) => (
-    <View style={styles.emptyVideo}>
-      {tab === 'library' ? <Tv size={28} color={palette.secondaryText} strokeWidth={1.5} /> : <WifiOff size={28} color={palette.secondaryText} strokeWidth={1.5} />}
-      <Text style={[styles.emptyVideoText, { color: palette.secondaryText }]}>{title}</Text>
-      {button ? (
-        <Pressable style={[styles.primaryButton, { backgroundColor: palette.text }]} onPress={button.onPress}>
-          <Text style={[styles.primaryButtonText, { color: palette.inverseText }]}>{button.label}</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
+  const renderLibraryChannel = useCallback(({ item }: { item: IptvLibraryChannel }) => (
+    <ChannelRow
+      avatar={countryFlag(item.country) || item.name.trim().slice(0, 1) || '台'}
+      title={item.name}
+      subtitle={item.categories.slice(0, 3).join(' · ') || item.country}
+      onPress={() => openLibraryChannel(item)}
+      palette={palette}
+    />
+  ), [openLibraryChannel, palette]);
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
@@ -308,29 +243,6 @@ export default function TvScreen() {
             </Pressable>
           )}
         </View>
-      </View>
-
-      <View style={styles.videoShell}>
-        {tab === 'mine' && !source ? (
-          renderEmptyVideo('请先添加直播源', { label: '去添加', onPress: () => router.push('/live-sources') })
-        ) : tab === 'mine' && !currentM3u ? (
-          renderEmptyVideo('暂无频道')
-        ) : tab === 'library' && !currentLibrary ? (
-          renderEmptyVideo('选择频道开始播放')
-        ) : (
-          <VideoView
-            player={player}
-            nativeControls
-            allowsPictureInPicture
-            contentFit="contain"
-            style={styles.video}
-          />
-        )}
-        {status === 'loading' ? (
-          <View style={styles.buffering} pointerEvents="none">
-            <ActivityIndicator size="small" color="#fff" />
-          </View>
-        ) : null}
       </View>
 
       <View style={styles.segmentWrap}>
@@ -364,17 +276,21 @@ export default function TvScreen() {
           </View>
 
           {loading ? (
-            <View style={styles.loadingState}>
-              <ActivityIndicator size="small" color={palette.secondaryText} />
-              <Text style={[styles.loadingText, { color: palette.secondaryText }]}>正在加载频道...</Text>
-            </View>
+            <ListState text="正在加载频道..." palette={palette} />
           ) : errorMsg ? (
-            <View style={styles.loadingState}>
-              <Text style={[styles.errorText, { color: palette.secondaryText }]}>{errorMsg}</Text>
-              <Pressable style={[styles.primaryButton, { backgroundColor: palette.text }]} onPress={() => setRefreshKey((value) => value + 1)}>
-                <Text style={[styles.primaryButtonText, { color: palette.inverseText }]}>重试</Text>
-              </Pressable>
-            </View>
+            <ListState
+              text={errorMsg}
+              actionLabel="重试"
+              onAction={() => setRefreshKey((value) => value + 1)}
+              palette={palette}
+            />
+          ) : !source ? (
+            <ListState
+              text="请先添加直播源"
+              actionLabel="去添加"
+              onAction={() => router.push('/live-sources')}
+              palette={palette}
+            />
           ) : (
             <SectionList
               sections={sections}
@@ -383,7 +299,7 @@ export default function TvScreen() {
               renderSectionHeader={({ section }) => (
                 <Text style={[styles.sectionHeader, { color: palette.secondaryText }]}>{section.title}</Text>
               )}
-              stickySectionHeadersEnabled={false}
+              stickySectionHeadersEnabled
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
             />
@@ -398,17 +314,9 @@ export default function TvScreen() {
           </View>
 
           {librarySyncing ? (
-            <View style={styles.loadingState}>
-              <ActivityIndicator size="small" color={palette.secondaryText} />
-              <Text style={[styles.loadingText, { color: palette.secondaryText }]}>正在同步频道库...</Text>
-            </View>
+            <ListState text="正在同步频道库..." palette={palette} />
           ) : libraryError ? (
-            <View style={styles.loadingState}>
-              <Text style={[styles.errorText, { color: palette.secondaryText }]}>{libraryError}</Text>
-              <Pressable style={[styles.primaryButton, { backgroundColor: palette.text }]} onPress={syncLibrary}>
-                <Text style={[styles.primaryButtonText, { color: palette.inverseText }]}>重试</Text>
-              </Pressable>
-            </View>
+            <ListState text={libraryError} actionLabel="重试" onAction={syncLibrary} palette={palette} />
           ) : (
             <FlatList
               data={libraryChannels}
@@ -449,12 +357,69 @@ export default function TvScreen() {
   );
 }
 
+function ChannelRow({
+  avatar,
+  title,
+  subtitle,
+  onPress,
+  palette,
+}: {
+  avatar: string;
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+  palette: typeof lightPalette;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.channelRow,
+        { borderBottomColor: palette.border },
+        pressed && { opacity: 0.6 },
+      ]}
+      onPress={onPress}>
+      <View style={[styles.avatar, { backgroundColor: palette.segmentBackground }]}>
+        <Text style={[styles.avatarText, { color: palette.secondaryText }]}>{avatar}</Text>
+      </View>
+      <View style={styles.channelText}>
+        <Text style={[styles.channelName, { color: palette.text }]} numberOfLines={1}>{title}</Text>
+        {subtitle ? <Text style={[styles.channelMeta, { color: palette.secondaryText }]} numberOfLines={1}>{subtitle}</Text> : null}
+      </View>
+      <ChevronRight size={17} color={palette.secondaryText} strokeWidth={1.8} />
+    </Pressable>
+  );
+}
+
 function FilterButton({ label, onPress, palette }: { label: string; onPress: () => void; palette: typeof lightPalette }) {
   return (
     <Pressable style={[styles.filterButton, { backgroundColor: palette.segmentBackground }]} onPress={onPress}>
       <Text style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>{label}</Text>
       <ChevronDown size={14} color={palette.secondaryText} strokeWidth={1.8} />
     </Pressable>
+  );
+}
+
+function ListState({
+  text,
+  actionLabel,
+  onAction,
+  palette,
+}: {
+  text: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  palette: typeof lightPalette;
+}) {
+  return (
+    <View style={styles.listState}>
+      <ActivityIndicator size="small" color={palette.secondaryText} />
+      <Text style={[styles.listStateText, { color: palette.secondaryText }]}>{text}</Text>
+      {actionLabel && onAction ? (
+        <Pressable style={[styles.stateButton, { backgroundColor: palette.text }]} onPress={onAction}>
+          <Text style={[styles.stateButtonText, { color: palette.inverseText }]}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -517,49 +482,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '800',
   },
-  videoShell: {
-    width: SCREEN_WIDTH,
-    height: VIDEO_HEIGHT,
-    backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  video: {
-    width: SCREEN_WIDTH,
-    height: VIDEO_HEIGHT,
-  },
-  emptyVideo: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  emptyVideoText: {
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '700',
-  },
-  buffering: {
-    position: 'absolute',
-    alignSelf: 'center',
-    padding: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.42)',
-  },
-  primaryButton: {
-    minHeight: 38,
-    paddingHorizontal: 20,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '800',
-  },
   segmentWrap: {
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 4,
   },
   segment: {
     height: 38,
@@ -619,24 +544,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '700',
   },
-  loadingState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '600',
-  },
-  errorText: {
-    paddingHorizontal: 24,
-    textAlign: 'center',
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '600',
-  },
   sectionHeader: {
     paddingHorizontal: 16,
     paddingTop: 16,
@@ -644,35 +551,67 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
+    backgroundColor: 'transparent',
   },
   channelRow: {
-    minHeight: 52,
+    minHeight: 64,
     marginHorizontal: 16,
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 12,
   },
-  libraryText: {
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  channelText: {
     flex: 1,
     minWidth: 0,
   },
   channelName: {
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '700',
   },
   channelMeta: {
-    marginTop: 2,
-    fontSize: 11,
-    lineHeight: 15,
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '500',
   },
-  playingBadge: {
-    fontSize: 11,
-    lineHeight: 15,
+  listState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 24,
+  },
+  listStateText: {
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+  },
+  stateButton: {
+    minHeight: 38,
+    paddingHorizontal: 20,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stateButtonText: {
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '800',
   },
   listContent: {

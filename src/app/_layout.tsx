@@ -41,6 +41,7 @@ function ThemedRoot() {
                   <Stack.Screen name="aggregate-search" options={{ animation: 'none' }} />
                   <Stack.Screen name="detail" />
                   <Stack.Screen name="player" options={{ presentation: 'fullScreenModal', animation: 'none' }} />
+                  <Stack.Screen name="live-player" />
                   <Stack.Screen name="sites" />
                   <Stack.Screen name="live-sources" />
                   <Stack.Screen name="mine" />
