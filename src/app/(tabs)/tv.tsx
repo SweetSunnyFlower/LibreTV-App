@@ -502,7 +502,7 @@ const lightPalette = {
   inverseText: '#FFFFFF',
   secondaryText: '#8A8A8A',
   border: '#E8E8E6',
-  segmentBackground: '#ECECEA',
+  segmentBackground: '#F2F2F0',
   accent: '#2563EB',
 };
 
