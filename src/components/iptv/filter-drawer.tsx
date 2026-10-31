@@ -6,9 +6,9 @@ import {
   Animated,
   Dimensions,
   Easing,
+  FlatList,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const DRAWER_WIDTH = SCREEN_WIDTH * 0.82;
+const DRAWER_WIDTH = SCREEN_WIDTH;
 
 export interface IptvLibraryFilters {
   country: string;
@@ -49,18 +49,12 @@ export function FilterDrawer({
   const palette = isDark ? darkPalette : lightPalette;
   const translateX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const [rendered, setRendered] = useState(visible);
-  const [countryQuery, setCountryQuery] = useState('');
-  const [languageQuery, setLanguageQuery] = useState('');
-  const [categoryQuery, setCategoryQuery] = useState('');
   const [pending, setPending] = useState<IptvLibraryFilters>({ country, language, category });
 
   useEffect(() => {
     if (visible) {
       setRendered(true);
       setPending({ country, language, category });
-      setCountryQuery('');
-      setLanguageQuery('');
-      setCategoryQuery('');
       Animated.timing(translateX, {
         toValue: 0,
         duration: 260,
@@ -91,7 +85,6 @@ export function FilterDrawer({
   return (
     <Modal visible={rendered} transparent animationType="none" onRequestClose={onClose}>
       <View style={styles.root}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
         <Animated.View style={[styles.drawer, { backgroundColor: palette.background, transform: [{ translateX }] }]}>
           <View style={[styles.header, { borderBottomColor: palette.border }]}>
             <Text style={[styles.title, { color: palette.text }]}>筛选</Text>
@@ -100,35 +93,29 @@ export function FilterDrawer({
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} style={styles.body}>
-            <FilterSection
+          <View style={styles.columnsRow}>
+            <FilterColumn
               title="国家"
-              query={countryQuery}
-              onChangeQuery={setCountryQuery}
               options={countryOptions}
               selectedKey={pending.country}
               onSelect={(key) => setPending((prev) => ({ ...prev, country: key }))}
               palette={palette}
             />
-            <FilterSection
+            <FilterColumn
               title="语言"
-              query={languageQuery}
-              onChangeQuery={setLanguageQuery}
               options={languageOptions}
               selectedKey={pending.language}
               onSelect={(key) => setPending((prev) => ({ ...prev, language: key }))}
               palette={palette}
             />
-            <FilterSection
+            <FilterColumn
               title="分类"
-              query={categoryQuery}
-              onChangeQuery={setCategoryQuery}
               options={categoryOptions}
               selectedKey={pending.category}
               onSelect={(key) => setPending((prev) => ({ ...prev, category: key }))}
               palette={palette}
             />
-          </ScrollView>
+          </View>
 
           <View style={[styles.footer, { borderTopColor: palette.border }]}>
             <Pressable style={[styles.resetButton, { borderColor: palette.border }]} onPress={reset}>
@@ -144,51 +131,50 @@ export function FilterDrawer({
   );
 }
 
-function FilterSection({
+function FilterColumn({
   title,
-  query,
-  onChangeQuery,
   options,
   selectedKey,
   onSelect,
   palette,
 }: {
   title: string;
-  query: string;
-  onChangeQuery: (value: string) => void;
   options: FilterPickerOption[];
   selectedKey: string;
   onSelect: (key: string) => void;
   palette: typeof lightPalette;
 }) {
+  const [query, setQuery] = useState('');
   const filtered = options.filter((option) => option.label.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
-    <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: palette.text }]}>{title}</Text>
+    <View style={[styles.column, { borderLeftColor: palette.border }]}>
+      <Text style={[styles.columnTitle, { color: palette.text }]}>{title}</Text>
       <TextInput
-        style={[styles.search, { color: palette.text, backgroundColor: palette.segmentBackground }]}
+        style={[styles.columnSearch, { color: palette.text, backgroundColor: palette.segmentBackground }]}
         value={query}
-        onChangeText={onChangeQuery}
-        placeholder={`搜索${title}`}
+        onChangeText={setQuery}
+        placeholder="搜索"
         placeholderTextColor={palette.secondaryText}
         autoCapitalize="none"
         autoCorrect={false}
       />
-      {filtered.map((option) => {
-        const isSelected = option.key === selectedKey;
-        return (
-          <Pressable
-            key={option.key}
-            style={[styles.option, { borderBottomColor: palette.border }]}
-            onPress={() => onSelect(option.key)}>
-            <Text style={[styles.optionText, { color: isSelected ? palette.text : palette.secondaryText }]}>
-              {option.label}
-            </Text>
-            {isSelected ? <Text style={[styles.check, { color: palette.text }]}>✓</Text> : null}
-          </Pressable>
-        );
-      })}
+      <FlatList
+        data={filtered}
+        keyExtractor={(item) => item.key}
+        renderItem={({ item }) => {
+          const isSelected = item.key === selectedKey;
+          return (
+            <Pressable style={styles.option} onPress={() => onSelect(item.key)}>
+              <Text style={[styles.optionText, { color: isSelected ? palette.text : palette.secondaryText }]} numberOfLines={1}>
+                {item.label}
+              </Text>
+              {isSelected ? <Text style={[styles.check, { color: palette.text }]}>✓</Text> : null}
+            </Pressable>
+          );
+        }}
+        showsVerticalScrollIndicator={false}
+      />
     </View>
   );
 }
@@ -216,13 +202,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'flex-end',
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.42)',
   },
   drawer: {
@@ -242,42 +221,45 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '800',
   },
-  body: {
+  columnsRow: {
     flex: 1,
+    flexDirection: 'row',
   },
-  section: {
-    paddingTop: 18,
+  column: {
+    flex: 1,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    paddingTop: 12,
   },
-  sectionTitle: {
-    paddingHorizontal: 18,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '800',
-  },
-  search: {
-    marginHorizontal: 18,
-    marginTop: 10,
-    height: 36,
-    borderRadius: 0,
+  columnTitle: {
     paddingHorizontal: 12,
     fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  columnSearch: {
+    marginHorizontal: 10,
+    marginTop: 8,
+    height: 34,
+    borderRadius: 0,
+    paddingHorizontal: 10,
+    fontSize: 12,
   },
   option: {
-    minHeight: 44,
-    marginHorizontal: 18,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 40,
+    paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 4,
   },
   optionText: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '600',
   },
   check: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
   },
   footer: {
