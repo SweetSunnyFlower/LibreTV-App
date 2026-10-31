@@ -7,7 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { ChevronLeft, List, Pause, Play, X } from 'lucide-react-native';
+import { ChevronLeft, List, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,6 +42,7 @@ export default function LivePlayerScreen() {
   const [drawerChannels, setDrawerChannels] = useState<IptvChannel[]>([]);
   const [controlsVisible, setControlsVisible] = useState(true);
   const drawerX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const player = useVideoPlayer(null, () => {});
   const { status } = useEvent(player, 'statusChange', {
@@ -142,14 +143,6 @@ export default function LivePlayerScreen() {
 
   const showLoading = loading || (!isPlaying && status !== 'error' && !errorMsg);
 
-  const togglePlayback = useCallback(() => {
-    if (isPlaying) {
-      player.pause();
-    } else {
-      player.play();
-    }
-  }, [isPlaying, player]);
-
   const switchChannel = useCallback(async (channel: IptvChannel) => {
     setDrawerOpen(false);
     setErrorMsg('');
@@ -162,6 +155,22 @@ export default function LivePlayerScreen() {
       setErrorMsg(error instanceof Error ? error.message : '切换失败');
     }
   }, [player]);
+
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    controlsTimerRef.current = setTimeout(() => {
+      setControlsVisible(false);
+      controlsTimerRef.current = null;
+    }, 5000);
+  }, []);
+
+  useEffect(() => {
+    showControls();
+    return () => {
+      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    };
+  }, [showControls]);
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
@@ -183,7 +192,7 @@ export default function LivePlayerScreen() {
         />
       ) : null}
 
-      <Pressable style={styles.tapOverlay} onPress={() => setControlsVisible((value) => !value)} />
+      <Pressable style={styles.tapOverlay} onPress={showControls} />
 
       {showLoading && !errorMsg ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
@@ -214,20 +223,13 @@ export default function LivePlayerScreen() {
       {controlsVisible && kind === 'm3u' ? (
         <Pressable
           style={[styles.channelListButton, { top: insets.top + 8 }]}
-          onPress={() => setDrawerOpen(true)}
+          onPress={() => {
+            showControls();
+            setDrawerOpen(true);
+          }}
           hitSlop={8}
           accessibilityLabel="频道列表">
           <List size={24} color="#fff" strokeWidth={2} />
-        </Pressable>
-      ) : null}
-
-      {controlsVisible ? (
-        <Pressable
-          style={styles.playPauseButton}
-          onPress={togglePlayback}
-          accessibilityLabel={isPlaying ? '暂停' : '播放'}
-          hitSlop={10}>
-          {isPlaying ? <Pause size={26} color="#fff" strokeWidth={2} /> : <Play size={26} color="#fff" strokeWidth={2} />}
         </Pressable>
       ) : null}
 
@@ -457,18 +459,5 @@ const styles = StyleSheet.create({
   },
   drawerChannelTextActive: {
     fontWeight: '800',
-  },
-  playPauseButton: {
-    position: 'absolute',
-    left: '50%',
-    top: '50%',
-    width: 56,
-    height: 56,
-    marginLeft: -28,
-    marginTop: -28,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.42)',
   },
 });
