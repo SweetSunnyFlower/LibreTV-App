@@ -1,5 +1,5 @@
 import { useThemeName } from '@/hooks/use-theme';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ElementRef } from 'react';
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 interface TagSelectorProps {
@@ -22,7 +22,7 @@ export function TagSelector({ tags, selectedTag, onSelectTag }: TagSelectorProps
   const textColor = isDark ? '#FAFAFA' : '#111111';
   const mutedColor = isDark ? '#8E8E8E' : '#8A8A8A';
   const underlineX = useRef(new Animated.Value(0)).current;
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ElementRef<typeof ScrollView>>(null);
   const [metrics, setMetrics] = useState<Record<string, TabMetric>>({});
   const selectedIndex = useMemo(() => Math.max(0, tags.indexOf(selectedTag)), [selectedTag, tags]);
 

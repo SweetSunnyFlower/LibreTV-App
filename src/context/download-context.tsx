@@ -45,7 +45,7 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const appStateRef = useRef<AppStateStatus>(Platform.OS === 'web' ? 'active' : AppState.currentState);
+  const appStateRef = useRef<string | null>(Platform.OS === 'web' ? 'active' : AppState.currentState);
   const refreshInFlight = useRef(false);
   const resumeInFlight = useRef(false);
 

@@ -11,7 +11,7 @@ interface ScreenHeaderProps {
   subtitle?: string;
   floating?: boolean;
   right?: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
+  style?: StyleProp<Animated.WithAnimatedValue<ViewStyle>>;
 }
 
 export function ScreenHeader({ title, subtitle, floating = false, right, style }: ScreenHeaderProps) {
