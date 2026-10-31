@@ -702,6 +702,14 @@ export default function TvScreen() {
               autoCorrect={false}
             />
           </View>
+          {libraryStreamsSyncing ? (
+            <View style={[styles.streamSyncBanner, { backgroundColor: palette.segmentBackground }]}>
+              <ActivityIndicator size="small" color={palette.secondaryText} />
+              <Text style={[styles.streamSyncBannerText, { color: palette.secondaryText }]} numberOfLines={1}>
+                {librarySyncProgress || '正在后台同步流数据…'}
+              </Text>
+            </View>
+          ) : null}
           {librarySyncing ? (
             <ListState text={librarySyncProgress || '正在同步频道库...'} palette={palette} />
           ) : libraryError ? (
@@ -1004,6 +1012,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  streamSyncBanner: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    minHeight: 32,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  streamSyncBannerText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
   },
   searchInput: {
     flex: 1,
