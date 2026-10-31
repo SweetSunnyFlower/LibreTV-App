@@ -11,10 +11,16 @@ import { useThemeName } from '@/hooks/use-theme';
 import { migrateDb } from '@/services/database';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { useEffect } from 'react';
 
 configureDownloadNotificationHandler();
 
 export default function RootLayout() {
+  useEffect(() => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+  }, []);
+
   return (
     <SQLiteProvider databaseName="movie.db" onInit={migrateDb}>
       <AppThemeProvider>
@@ -41,7 +47,7 @@ function ThemedRoot() {
                   <Stack.Screen name="aggregate-search" options={{ animation: 'none' }} />
                   <Stack.Screen name="detail" />
                   <Stack.Screen name="player" options={{ presentation: 'fullScreenModal', animation: 'none' }} />
-                  <Stack.Screen name="live-player" options={{ presentation: 'fullScreenModal', animation: 'none' }} />
+                  <Stack.Screen name="live-player" options={{ presentation: 'fullScreenModal', animation: 'none', orientation: 'landscape' }} />
                   <Stack.Screen name="sites" />
                   <Stack.Screen name="live-sources" />
                   <Stack.Screen name="mine" />

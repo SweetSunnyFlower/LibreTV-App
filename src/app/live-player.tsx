@@ -1,5 +1,6 @@
 import { getIptvLibraryStreams, pickBestStream } from '@/services/iptv-library';
 import { useEvent } from 'expo';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -35,6 +36,13 @@ export default function LivePlayerScreen() {
     status: player.status,
     error: undefined,
   });
+
+  useEffect(() => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+    return () => {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
