@@ -102,6 +102,13 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
       isActive INTEGER NOT NULL DEFAULT 0,
       createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
+    CREATE TABLE IF NOT EXISTS iptv_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      url TEXT NOT NULL,
+      name TEXT NOT NULL,
+      isActive INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
     CREATE TABLE IF NOT EXISTS downloads (
       id TEXT PRIMARY KEY,
       vodName TEXT NOT NULL,
@@ -287,6 +294,62 @@ export async function deleteSite(db: SQLiteDatabase, id: number) {
       const next = await db.getFirstAsync<{ id: number }>('SELECT id FROM sites ORDER BY isDefault DESC, createdAt ASC LIMIT 1');
       if (next) {
         await db.runAsync('UPDATE sites SET isActive = 1 WHERE id = ?', [next.id]);
+      }
+    }
+  });
+}
+
+// ===== IPTV Source CRUD =====
+
+export async function getAllIptvSources(db: SQLiteDatabase) {
+  return db.getAllAsync<{
+    id: number;
+    url: string;
+    name: string;
+    isActive: number;
+    createdAt: number;
+  }>('SELECT * FROM iptv_sources ORDER BY createdAt ASC, id ASC');
+}
+
+export async function setActiveIptvSource(db: SQLiteDatabase, id: number) {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE iptv_sources SET isActive = 0 WHERE isActive = 1');
+    await db.runAsync('UPDATE iptv_sources SET isActive = 1 WHERE id = ?', [id]);
+  });
+}
+
+export async function addIptvSource(
+  db: SQLiteDatabase,
+  url: string,
+  name: string
+) {
+  const result = await db.runAsync(
+    'INSERT INTO iptv_sources (url, name, isActive) VALUES (?, ?, 0)',
+    [url, name]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function updateIptvSource(
+  db: SQLiteDatabase,
+  id: number,
+  url: string,
+  name: string
+) {
+  await db.runAsync(
+    'UPDATE iptv_sources SET url = ?, name = ? WHERE id = ?',
+    [url, name, id]
+  );
+}
+
+export async function deleteIptvSource(db: SQLiteDatabase, id: number) {
+  await db.withTransactionAsync(async () => {
+    const deleting = await db.getFirstAsync<{ isActive: number }>('SELECT isActive FROM iptv_sources WHERE id = ? LIMIT 1', [id]);
+    await db.runAsync('DELETE FROM iptv_sources WHERE id = ?', [id]);
+    if (deleting?.isActive) {
+      const next = await db.getFirstAsync<{ id: number }>('SELECT id FROM iptv_sources ORDER BY createdAt ASC, id ASC LIMIT 1');
+      if (next) {
+        await db.runAsync('UPDATE iptv_sources SET isActive = 1 WHERE id = ?', [next.id]);
       }
     }
   });

@@ -22,6 +22,7 @@ import { downloadAndInstallApk } from '@/services/apk-update-service';
 import { getAppSetting, setAppSetting } from '@/services/database';
 import { fetchLatestAppVersion, getCurrentAppVersion, isVersionNewer } from '@/services/app-version-service';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useRouter } from 'expo-router';
 import { ChevronRight, Minus, Plus } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
@@ -62,6 +63,7 @@ function getInstallErrorMessage(error: unknown) {
 
 export default function SettingsScreen() {
   const db = useSQLiteContext();
+  const router = useRouter();
   const dialog = useAppDialog();
   const { themePreference, setThemePreference } = useAppTheme();
   const isDark = useThemeName() === 'dark';
@@ -252,6 +254,18 @@ export default function SettingsScreen() {
               subtitle={checkingUpdate ? '正在检查最新版本...' : `当前版本：${getCurrentAppVersion()}`}
               disabled={checkingUpdate}
               onPress={checkVersionUpdate}
+              palette={palette}
+            />
+            <ActionSettingItem
+              title="站点管理"
+              subtitle="管理 CMS 资源站"
+              onPress={() => router.push('/sites')}
+              palette={palette}
+            />
+            <ActionSettingItem
+              title="直播源管理"
+              subtitle="添加和管理电视直播 M3U 源"
+              onPress={() => router.push('/live-sources')}
               palette={palette}
             />
           </>
