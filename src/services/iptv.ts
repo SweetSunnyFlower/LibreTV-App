@@ -18,7 +18,7 @@ export async function probeIptvSource(url: string) {
   return channels.length;
 }
 
-export async function getCachedIptvChannels(db: SQLiteDatabase, sourceId: number) {
+export async function getCachedIptvChannels(db: SQLiteDatabase, sourceId: number): Promise<IptvChannel[] | null> {
   const rows = await db.getAllAsync<{
     name: string;
     url: string;
@@ -34,7 +34,7 @@ export async function getCachedIptvChannels(db: SQLiteDatabase, sourceId: number
     url: row.url,
     logo: row.logo || undefined,
     group: row.groupTitle || undefined,
-  })) satisfies IptvChannel[];
+  }));
 }
 
 export async function cacheIptvChannels(db: SQLiteDatabase, sourceId: number, channels: IptvChannel[]) {

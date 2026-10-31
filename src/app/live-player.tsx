@@ -1,14 +1,19 @@
 import { getIptvLibraryStreams, pickBestStream } from '@/services/iptv-library';
+import { fetchIptvChannels, getCachedIptvChannels } from '@/services/iptv';
+import type { IptvChannel } from '@/models/iptv';
 import { useEvent } from 'expo';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { ChevronLeft, Pause, Play } from 'lucide-react-native';
+import { ChevronLeft, List, Pause, Play, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Dimensions, Easing, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
 
 function firstParam(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
@@ -24,12 +29,18 @@ export default function LivePlayerScreen() {
     name?: string;
     channelId?: string;
     country?: string;
+    sourceId?: string;
+    sourceUrl?: string;
   }>();
 
   const kind = firstParam(params.kind);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
+  const [currentUrl, setCurrentUrl] = useState(firstParam(params.url) ?? '');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerChannels, setDrawerChannels] = useState<IptvChannel[]>([]);
+  const drawerX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
 
   const player = useVideoPlayer(null, () => {});
   const { status } = useEvent(player, 'statusChange', {
@@ -48,6 +59,36 @@ export default function LivePlayerScreen() {
   }, []);
 
   useEffect(() => {
+    Animated.timing(drawerX, {
+      toValue: drawerOpen ? 0 : DRAWER_WIDTH,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [drawerOpen, drawerX]);
+
+  useEffect(() => {
+    if (kind !== 'm3u') return;
+    const sourceId = Number(firstParam(params.sourceId));
+    const sourceUrl = firstParam(params.sourceUrl);
+    let cancelled = false;
+    (async () => {
+      try {
+        let channels = sourceId ? await getCachedIptvChannels(db, sourceId) : null;
+        if ((!channels || channels.length === 0) && sourceUrl) {
+          channels = await fetchIptvChannels(sourceUrl);
+        }
+        if (!cancelled) setDrawerChannels(channels ?? []);
+      } catch (error) {
+        console.warn('[LivePlayer] Failed to load channel list:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [db, kind, params.sourceId, params.sourceUrl]);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setErrorMsg('');
@@ -59,6 +100,7 @@ export default function LivePlayerScreen() {
           if (!uri) throw new Error('缺少播放地址');
           if (cancelled) return;
           await player.replaceAsync({ uri });
+          if (!cancelled) setCurrentUrl(uri);
         } else {
           const channelId = firstParam(params.channelId) ?? '';
           if (!channelId) throw new Error('缺少频道 ID');
@@ -76,6 +118,7 @@ export default function LivePlayerScreen() {
               ? { uri: stream.url, headers }
               : { uri: stream.url }
           );
+          if (!cancelled) setCurrentUrl(stream.url);
         }
 
         if (!cancelled) {
@@ -105,6 +148,19 @@ export default function LivePlayerScreen() {
       player.play();
     }
   }, [isPlaying, player]);
+
+  const switchChannel = useCallback(async (channel: IptvChannel) => {
+    setDrawerOpen(false);
+    setErrorMsg('');
+    try {
+      await player.replaceAsync({ uri: channel.url });
+      player.play();
+      setCurrentUrl(channel.url);
+    } catch (error) {
+      console.warn('[LivePlayer] Failed to switch channel:', error);
+      setErrorMsg(error instanceof Error ? error.message : '切换失败');
+    }
+  }, [player]);
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
@@ -150,6 +206,16 @@ export default function LivePlayerScreen() {
         <ChevronLeft size={27} color="#fff" strokeWidth={2.15} />
       </Pressable>
 
+      {kind === 'm3u' ? (
+        <Pressable
+          style={[styles.channelListButton, { top: insets.top + 8 }]}
+          onPress={() => setDrawerOpen(true)}
+          hitSlop={8}
+          accessibilityLabel="频道列表">
+          <List size={24} color="#fff" strokeWidth={2} />
+        </Pressable>
+      ) : null}
+
       <Pressable
         style={styles.playPauseButton}
         onPress={togglePlayback}
@@ -157,6 +223,33 @@ export default function LivePlayerScreen() {
         hitSlop={10}>
         {isPlaying ? <Pause size={26} color="#fff" strokeWidth={2} /> : <Play size={26} color="#fff" strokeWidth={2} />}
       </Pressable>
+
+      {drawerOpen ? <Pressable style={styles.drawerBackdrop} onPress={() => setDrawerOpen(false)} /> : null}
+      <Animated.View style={[styles.channelDrawer, { transform: [{ translateX: drawerX }] }]}>
+        <View style={styles.drawerHeader}>
+          <Text style={styles.drawerTitle}>频道列表</Text>
+          <Pressable onPress={() => setDrawerOpen(false)} hitSlop={10}>
+            <X size={20} color="#fff" strokeWidth={1.8} />
+          </Pressable>
+        </View>
+        <FlatList
+          data={drawerChannels}
+          keyExtractor={(item) => item.url}
+          renderItem={({ item }) => {
+            const isActive = item.url === currentUrl;
+            return (
+              <Pressable
+                style={[styles.drawerChannel, isActive && styles.drawerChannelActive]}
+                onPress={() => switchChannel(item)}>
+                <Text style={[styles.drawerChannelText, isActive && styles.drawerChannelTextActive]} numberOfLines={1}>
+                  {item.name}
+                </Text>
+              </Pressable>
+            );
+          }}
+          showsVerticalScrollIndicator={false}
+        />
+      </Animated.View>
     </View>
   );
 }
@@ -290,6 +383,66 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  channelListButton: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  drawerBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  channelDrawer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: DRAWER_WIDTH,
+    backgroundColor: '#111111',
+  },
+  drawerHeader: {
+    height: 56,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.18)',
+  },
+  drawerTitle: {
+    color: '#fff',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  drawerChannel: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  drawerChannelActive: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  drawerChannelText: {
+    color: '#FAFAFA',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '600',
+  },
+  drawerChannelTextActive: {
+    fontWeight: '800',
   },
   playPauseButton: {
     position: 'absolute',

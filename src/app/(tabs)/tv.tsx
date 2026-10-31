@@ -251,6 +251,7 @@ export default function TvScreen() {
   }, [query, selectedState]);
 
   const openM3uChannel = useCallback((channel: IptvChannel) => {
+    const source = sources.find((item) => item.id === selectedSourceId);
     router.push({
       pathname: '/live-player',
       params: {
@@ -259,9 +260,11 @@ export default function TvScreen() {
         name: channel.name,
         group: channel.group ?? '',
         logo: channel.logo ?? '',
+        sourceId: selectedSourceId != null ? String(selectedSourceId) : '',
+        sourceUrl: source?.url ?? '',
       },
     });
-  }, [router]);
+  }, [router, selectedSourceId, sources]);
 
   const openLibraryChannel = useCallback((channel: IptvLibraryChannel) => {
     router.push({
