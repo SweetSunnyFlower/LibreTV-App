@@ -39,6 +39,7 @@ const TAB_ITEMS: Array<{ key: TvTab; label: string }> = [
   { key: 'library', label: '在线频道库' },
 ];
 const TAB_UNDERLINE_WIDTH = 16;
+const SOURCE_INDICATOR_HEIGHT = 16;
 
 function countryFlag(code: string) {
   if (!code) return '';
@@ -73,6 +74,8 @@ export default function TvScreen() {
   const [picker, setPicker] = useState<'country' | 'language' | 'category' | null>(null);
   const tabUnderlineX = useRef(new Animated.Value(0)).current;
   const [tabMetrics, setTabMetrics] = useState<Record<string, { x: number; width: number }>>({});
+  const sourceIndicatorY = useRef(new Animated.Value(0)).current;
+  const [sourceMetrics, setSourceMetrics] = useState<Record<number, { y: number; height: number }>>({});
 
   useEffect(() => {
     const metric = tabMetrics[tab];
@@ -84,6 +87,18 @@ export default function TvScreen() {
       useNativeDriver: true,
     }).start();
   }, [tab, tabMetrics, tabUnderlineX]);
+
+  useEffect(() => {
+    if (selectedSourceId == null) return;
+    const metric = sourceMetrics[selectedSourceId];
+    if (!metric) return;
+    Animated.timing(sourceIndicatorY, {
+      toValue: metric.y + (metric.height - SOURCE_INDICATOR_HEIGHT) / 2,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [selectedSourceId, sourceMetrics, sourceIndicatorY]);
 
   const fetchSource = useCallback(async (source: IptvSource) => {
     setSourceStates((prev) => ({
@@ -317,8 +332,15 @@ export default function TvScreen() {
                       { borderBottomColor: palette.border },
                       isActive && { backgroundColor: palette.background },
                     ]}
+                    onLayout={(event) => {
+                      const { y, height } = event.nativeEvent.layout;
+                      setSourceMetrics((current) => {
+                        const previous = current[source.id];
+                        if (previous?.y === y && previous.height === height) return current;
+                        return { ...current, [source.id]: { y, height } };
+                      });
+                    }}
                     onPress={() => selectSource(source)}>
-                    {isActive ? <View style={[styles.sourceSideAccent, { backgroundColor: palette.text }]} /> : null}
                     <Text
                       style={[styles.sourceSideText, { color: isActive ? palette.text : palette.secondaryText }]}
                       numberOfLines={2}>
@@ -328,6 +350,15 @@ export default function TvScreen() {
                 );
               })}
             </View>
+            <Animated.View
+              style={[
+                styles.sourceIndicator,
+                {
+                  backgroundColor: palette.text,
+                  transform: [{ translateY: sourceIndicatorY }],
+                },
+              ]}
+            />
           </View>
 
           <View style={styles.channelPane}>
@@ -581,6 +612,7 @@ const styles = StyleSheet.create({
   },
   sourceSidebar: {
     width: 108,
+    position: 'relative',
   },
   sourceSidebarScroll: {
     flex: 1,
@@ -592,12 +624,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  sourceSideAccent: {
+  sourceIndicator: {
     position: 'absolute',
     left: 0,
     top: 0,
-    bottom: 0,
-    width: 3,
+    width: 4,
+    height: SOURCE_INDICATOR_HEIGHT,
+    borderRadius: 2,
   },
   sourceSideText: {
     flex: 1,
