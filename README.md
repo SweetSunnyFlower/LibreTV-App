@@ -20,9 +20,9 @@
 
 # Movie Night
 
-一个基于 Expo / React Native 实现的移动端影视应用，支持影视推荐、CMS 资源站搜索、分类浏览、在线播放、收藏、观看历史、离线下载与本地播放。
+一个基于 Expo / React Native 实现的移动端影视 + IPTV 应用，支持影视推荐、CMS 资源站搜索、分类浏览、在线播放、收藏、观看历史、离线下载，以及 M3U / iptv-org 在线频道库的电视直播。
 
-> 项目当前基于 Expo SDK 56。涉及 Expo API 时，请优先参考对应版本文档：<https://docs.expo.dev/versions/v56.0.0/>
+> 项目当前基于 Expo SDK 58。涉及 Expo API 时，请优先参考对应版本文档：<https://docs.expo.dev/versions/v58.0.0/>
 
 ## 目录
 
@@ -68,8 +68,10 @@
 ### 收藏与历史
 
 - 支持收藏 / 取消收藏影视。
-- 我的收藏使用 3 列海报卡片展示。
-- 支持观看历史分组展示与清理。
+- 支持收藏 / 取消收藏直播频道（我的直播源与在线频道库都支持）。
+- 我的收藏和观看历史都采用影视 / 直播混排，按更新时间倒序排列，并用标签区分类型。
+- 影视收藏可进入详情，直播收藏可直接进入横屏直播播放页。
+- 观看历史支持影视文件夹分组、直播频道单独删除与整体清空。
 - 用户数据存储在本地 SQLite。
 
 ### 离线下载
@@ -86,37 +88,52 @@
 - 支持切换当前使用站点。
 - 当前站点会影响搜索、分类、详情和播放数据来源。
 
+### 电视直播
+
+- 底部「电视」Tab 提供「我的直播源」和「在线频道库」两个来源。
+- 我的直播源支持手动添加 / 编辑 / 删除 M3U 地址，首次安装会预置中国频道、中文频道、新闻分类、全球全量四个 iptv-org 源。
+- 我的直播源使用左侧来源栏 + 右侧频道列表的商城式布局，频道列表支持搜索、收藏与可见窗口自动探测。
+- 在线频道库从 iptv-org API 同步到本地 SQLite，支持按国家 / 语言 / 分类筛选，默认显示中国大陆频道。
+- 在线频道库支持展示全部 `alt_names`，搜索可同时匹配频道名与别名。
+- 直播播放页为全屏横屏，自动隐藏控制，只保留返回、频道名和频道列表入口；支持失败自动重连与手动重试。
+- 频道可用性探测只针对当前窗口内的频道，避免一次性请求全部频道。
+
 ## 技术选型
 
 | 方向 | 技术 | 说明 |
 | --- | --- | --- |
-| 应用框架 | Expo SDK 56 | 提供跨平台运行、原生模块集成和构建能力 |
-| UI 框架 | React Native 0.85 | 移动端 UI 基础框架 |
+| 应用框架 | Expo SDK 58 | 提供跨平台运行、原生模块集成和构建能力 |
+| UI 框架 | React Native 0.88 | 移动端 UI 基础框架 |
 | 路由 | expo-router | 基于文件系统的路由管理 |
-| 数据库 | expo-sqlite | 本地持久化站点、收藏、历史、下载记录 |
+| 数据库 | expo-sqlite | 本地持久化站点、收藏、历史、下载记录、直播源与频道库缓存 |
 | 文件系统 | expo-file-system | 本地下载文件、HLS 分片落盘 |
-| 播放器 | expo-video | 在线 / 本地视频播放 |
+| 播放器 | expo-video | 在线 / 本地视频播放与横屏直播播放 |
+| 屏幕方向 | expo-screen-orientation | 直播播放页横屏锁定与页面方向恢复 |
+| 直播数据 | iptv-org API | 频道、流、语言、分类等在线频道库数据 |
 | 图片 | expo-image | 海报、Logo、图标等图片展示 |
 | 动画 | react-native-reanimated | Tab icon 等交互动效 |
 | 玻璃效果 | expo-glass-effect | 底部悬浮玻璃 TabBar，低版本环境自动降级 |
 | 图标 | lucide-react-native | 通用线性图标 |
 | 样式 | React Native StyleSheet | 统一使用主题色、间距常量 |
-| 构建 | Gradle / EAS Build | 支持本地 Android 构建和 EAS 云端构建 |
+| 构建 | Gradle / EAS Build | 支持本地 Android 构建和 EAS 云端构建（Gradle 9.4.1） |
 
 ## 项目结构
 
 ```text
 src/
   app/
-    (tabs)/                 # 首页、搜索入口、分类、下载、我的
+    (tabs)/                 # 首页、分类、搜索入口、电视、我的
     mine/                   # 我的收藏、观看历史、下载剧集等二级页面
     sites/                  # 站点管理与编辑
+    live-sources/           # 直播源管理与编辑
     _layout.tsx             # 根布局、Provider、数据库初始化
     detail.tsx              # 影视详情页
-    player.tsx              # 播放页
+    player.tsx              # 影视播放页
+    live-player.tsx         # 横屏直播播放页
     search.tsx              # 搜索页
   components/
     movie/                  # 影视业务组件：卡片、剧集、下载项等
+    iptv/                   # 直播筛选抽屉等组件
     ui/                     # 通用 UI 组件
     themed-text.tsx         # 主题文本
     themed-view.tsx         # 主题容器
@@ -125,20 +142,25 @@ src/
     api.ts                  # API 常量
     app-settings.ts         # 应用设置常量
     sites.ts                # 默认资源站配置
+    iptv.ts                 # 默认直播源配置
     theme.ts                # 主题色、字体、间距
   context/
     download-context.tsx    # 下载任务管理
     site-context.tsx        # 当前站点管理
-    user-data-context.tsx   # 收藏、搜索历史、观看历史
+    iptv-context.tsx        # 直播源管理
+    user-data-context.tsx   # 影视/直播收藏、搜索历史、观看历史
   models/                   # TypeScript 数据模型
   services/
     cms-api.ts              # CMS 资源站接口封装
     database.ts             # SQLite 表结构与数据访问
     douban-api.ts           # 首页推荐数据接口
     playback-resolver.ts    # 播放地址解析与 source 构建
+    iptv.ts                 # M3U 拉取、解析缓存、可用性探测
+    iptv-library.ts         # iptv-org 在线频道库同步与查询
   utils/
     image-url.ts            # 图片 URL 规范化与请求头
     media-groups.ts         # 下载 / 历史分组工具
+    iptv.ts                 # M3U 解析与频道分组
 ```
 
 ## 核心实现
@@ -149,12 +171,14 @@ src/
 
 - `src/app/(tabs)/index.tsx`：首页
 - `src/app/(tabs)/categories.tsx`：分类
-- `src/app/(tabs)/downloads.tsx`：下载
+- `src/app/(tabs)/tv.tsx`：电视（我的直播源 / 在线频道库）
 - `src/app/(tabs)/my.tsx`：我的
 - `src/app/search.tsx`：搜索页
 - `src/app/detail.tsx`：详情页
-- `src/app/player.tsx`：播放器页
+- `src/app/player.tsx`：影视播放页
+- `src/app/live-player.tsx`：横屏直播播放页
 - `src/app/sites/index.tsx`：站点管理
+- `src/app/live-sources/index.tsx`：直播源管理
 
 底部 TabBar 在 `src/app/(tabs)/_layout.tsx` 中配置，当前实现为悬浮玻璃样式，并为选中的 icon 添加持续摆动动画。
 
@@ -184,11 +208,13 @@ src/
 项目使用 `expo-sqlite` 保存本地数据，主要包括：
 
 - 资源站列表与当前站点
-- 收藏记录
+- 影视收藏、直播收藏
 - 搜索历史
-- 观看历史
+- 影视观看历史、直播观看历史
 - 下载任务记录
 - 应用设置
+- M3U 直播源及其频道缓存
+- iptv-org 在线频道库、流、语言、分类与筛选数据
 
 数据库访问集中在 `src/services/database.ts`，业务层通过 Context 调用，避免页面直接操作 SQL。
 
@@ -210,7 +236,21 @@ const { site, sites, setActiveSite, refreshSites } = useSite();
 
 切换站点后，搜索、分类、详情等页面会使用新的资源站地址。
 
-### 5. 播放解析
+### 5. 直播源与在线频道库
+
+直播相关逻辑主要分布在：
+
+- `src/app/(tabs)/tv.tsx`
+- `src/app/live-sources/index.tsx`
+- `src/app/live-player.tsx`
+- `src/services/iptv.ts`
+- `src/services/iptv-library.ts`
+
+我的直播源会拉取 M3U 并解析频道，解析结果按源缓存到 SQLite；再次进入时先展示缓存，再后台刷新。频道列表只对当前可见窗口内的流做可用性探测。
+
+在线频道库通过 jsDelivr CDN 拉取 iptv-org API，失败时自动回退到 `iptv-org.github.io`。频道、流、语言、分类等数据同步到本地 SQLite，支持国家、语言、分类筛选，并以 `alt_names` 参与搜索。
+
+### 6. 播放解析
 
 播放相关逻辑主要分布在：
 
@@ -226,7 +266,13 @@ const { site, sites, setActiveSite, refreshSites } = useSite();
 在线剧集列表只保留 m3u8/HLS。普通 MP4、FLV 和网页播放地址不会作为可选集展示；
 本地已下载文件仍可由播放器打开。
 
-### 6. 离线下载
+直播播放页位于 `src/app/live-player.tsx`：
+
+- 我的直播源频道直接把 M3U 中的 URL 交给 `expo-video`。
+- 在线频道库频道按 `channelId` 查询本地流，选择最优清晰度并携带 Referer / User-Agent。
+- 进入时锁定横屏，退出恢复竖屏；播放出错会自动重连，3 次失败后显示手动重试。
+
+### 7. 离线下载
 
 下载能力集中在 `src/context/download-context.tsx`，对外暴露：
 
@@ -266,7 +312,7 @@ downloads/
     part_00003.m3u8
 ```
 
-### 7. 图片处理
+### 8. 图片处理
 
 海报图片统一经过 `normalizeImageUrl` 处理，兼容：
 
@@ -283,11 +329,11 @@ downloads/
 
 建议环境：
 
-- Node.js 20+
+- Node.js 22.13+（项目已提供 `.nvmrc`，建议 `nvm use`）
 - npm 10+
 - JDK 17+
 - Android Studio
-- Android SDK
+- Android SDK（compileSdk 37 / Gradle 9.4.1）
 - Xcode（仅 iOS 开发需要）
 
 检查基础命令：
@@ -368,14 +414,19 @@ npm run lint
   "expo": {
     "name": "Movie Night",
     "slug": "movie",
+    "version": "1.1.0",
     "scheme": "movie",
+    "orientation": "default",
     "ios": {
       "bundleIdentifier": "com.vexai.movie"
     },
     "android": {
       "package": "com.vexai.movie",
-      "usesCleartextTraffic": true
-    }
+      "versionCode": 4
+    },
+    "plugins": [
+      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }]
+    ]
   }
 }
 ```
@@ -412,11 +463,20 @@ EXPO_PUBLIC_APP_VERSION_API_URL=https://你的正式域名/api/app/version
 
 ### 网络与 HTTP
 
-由于部分 CMS 资源站可能仍使用 HTTP 或不规范资源地址，Android 配置中开启了：
+由于部分 CMS 资源站 / 直播流可能仍使用 HTTP，Android 通过 `expo-build-properties` 开启：
 
 ```json
-"usesCleartextTraffic": true
+{
+  "expo-build-properties",
+  {
+    "android": {
+      "usesCleartextTraffic": true
+    }
+  }
+}
 ```
+
+屏幕方向使用 `orientation: "default"`，应用启动时默认锁定竖屏，直播播放页进入时锁定横屏、退出后恢复。
 
 iOS 配置中开启了 ATS 放行：
 
@@ -479,10 +539,16 @@ npm run prebuild:android:prod
 npm run assemble:android:release:prod
 ```
 
-`assemble:android:release:prod` 生成的 APK 仍位于：
+构建前请确认使用 Node 22+（项目 `.nvmrc` 已固定）。`assemble:android:release:prod` 生成的 APK 位于：
 
 ```text
-adb install android/app/build/outputs/apk/release/app-release.apk 
+android/app/build/outputs/apk/release/app-release.apk
+```
+
+安装到手机：
+
+```bash
+adb install -r android/app/build/outputs/apk/release/app-release.apk
 ```
 
 ### 方式一：本地 Android 构建
@@ -644,29 +710,23 @@ SigningConfig "release" is missing required property
 
 ```bash
 keytool -genkeypair \
-  -alias app \
+  -alias movie \
   -keyalg RSA \
   -keysize 2048 \
   -validity 10000 \
-  -keystore release.keystore
+  -keystore android/app/release.keystore
 ```
 
-将 keystore 放到：
-
-```text
-android/app/release.keystore
-```
-
-在 `android/gradle.properties` 中配置：
+在项目根目录创建 `android/keystore.properties`：
 
 ```properties
-MYAPP_UPLOAD_STORE_FILE=release.keystore
-MYAPP_UPLOAD_KEY_ALIAS=app
-MYAPP_UPLOAD_STORE_PASSWORD=your_store_password
-MYAPP_UPLOAD_KEY_PASSWORD=your_key_password
+storeFile=release.keystore
+storePassword=你的_store_password
+keyAlias=movie
+keyPassword=你的_key_password
 ```
 
-然后在 `android/app/build.gradle` 的 release 签名配置中读取这些变量。
+`storeFile` 相对于 `android/app` 解析；`android/keystore.properties` 和 `.keystore` 文件默认已在 `.gitignore` 中，不会提交到仓库。
 
 ### 4. Gradle 下载超时
 
@@ -696,6 +756,14 @@ android/gradle/wrapper/gradle-wrapper.properties
 - CMS 资源站是否需要 Referer / User-Agent。
 - `normalizeImageUrl` 是否能正确拼接 baseUrl。
 - 当前资源站是否允许外链图片。
+
+### 7. 在线频道库同步失败
+
+在线频道库默认从 jsDelivr CDN 拉取 iptv-org API，失败会自动回退到 `iptv-org.github.io`。如果两边都超时或返回非 JSON，优先检查手机网络、代理或运营商拦截；「服务器返回的数据格式无效」通常表示拿到了 HTML 错误页而不是 JSON。
+
+### 8. 直播播放一段时间后停止
+
+常见原因是直播流本身的分片返回 404 或连接被重置。播放器会自动重连当前频道，最多 3 次；仍失败会显示「播放失败，请重试」。如果频繁发生，建议在频道列表中换一个可用线路，或重新同步 / 刷新直播源。
 
 ## 开发规范建议
 
